@@ -42,18 +42,29 @@ final class AudioRecorder {
         let engine = AVAudioEngine()
         let input = engine.inputNode
         if let inputUID, var device = AudioDevices.deviceID(forUID: inputUID), let unit = input.audioUnit {
+            // The input unit takes a new device only while uninitialized; set on the running unit, the
+            // engine delivers no audio at all. It keeps the default device's channel count, with the
+            // chosen device's channels first.
+            AudioUnitUninitialize(unit)
             let status = AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
                                               &device, UInt32(MemoryLayout<AudioDeviceID>.size))
+            AudioUnitInitialize(unit)
             if status != noErr { logger.error("Couldn't select input \(inputUID, privacy: .public): \(status)") }
         }
+        // The tap's format can be wider than the device, as above, so the device's own format says
+        // how many of its channels carry sound.
         let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0, let converter = Converter(from: format) else { throw Failure.noInput }
-        input.installTap(onBus: 0, bufferSize: 2048, format: format) { [capture] buffer, _ in
+        let device = input.inputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0,
+              let converter = MonoConverter(from: format, deviceChannels: device.channelCount) else { throw Failure.noInput }
+        // @Sendable, so the closure isn't main-actor isolated like this method: AVFAudio calls it on
+        // its own realtime queue, where a main-actor closure traps.
+        input.installTap(onBus: 0, bufferSize: 2048, format: format) { @Sendable [capture] buffer, _ in
             capture.append(converter.convert(buffer))
         }
         try engine.start()
         self.engine = engine
-        logger.info("Recording from \(format.sampleRate) Hz, \(format.channelCount) channels")
+        logger.info("Recording from \(device.sampleRate) Hz, \(device.channelCount) channels")
     }
 
     /// Stops and returns everything recorded since `start`.
@@ -85,7 +96,7 @@ final class AudioRecorder {
     private func replay(_ url: URL) throws {
         let file = try AVAudioFile(forReading: url)
         guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)),
-              let converter = Converter(from: file.processingFormat) else { throw Failure.noInput }
+              let converter = MonoConverter(from: file.processingFormat, deviceChannels: file.processingFormat.channelCount) else { throw Failure.noInput }
         try file.read(into: buffer)
         let samples = converter.convert(buffer)
         testAudio = Task { [capture] in
@@ -133,23 +144,44 @@ private final class Capture: Sendable {
     }
 }
 
-/// Converts any input format to 16 kHz mono Float32, downmixing multi-channel interfaces. Used only
-/// on the audio thread after creation, which is why it can be unchecked Sendable.
-private final class Converter: @unchecked Sendable {
-    private let converter: AVAudioConverter
+/// Mixes the device's voice channels to mono and resamples them to 16 kHz Float32. Used only on the
+/// audio thread after creation, which is why it can be unchecked Sendable.
+final class MonoConverter: @unchecked Sendable {
+    private let channels: Int
+    private let mono: AVAudioFormat
     private let output: AVAudioFormat
+    private let converter: AVAudioConverter
 
-    init?(from input: AVAudioFormat) {
-        guard let output = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Double(Transcript.sampleRate),
+    /// `input` is the standard (deinterleaved Float32) format of the buffers, and `deviceChannels` the
+    /// number of them the device fills. Mono and stereo devices mix every channel. Interfaces with
+    /// more, such as the Vocaster's ten, carry the voice mix on channel 1 and separate sources and
+    /// loopbacks on the rest, so they record channel 1 alone.
+    init?(from input: AVAudioFormat, deviceChannels: AVAudioChannelCount) {
+        let channels = Int(min(deviceChannels > 2 ? 1 : deviceChannels, input.channelCount))
+        guard input.commonFormat == .pcmFormatFloat32, !input.isInterleaved, channels > 0,
+              let mono = AVAudioFormat(standardFormatWithSampleRate: input.sampleRate, channels: 1),
+              let output = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Double(Transcript.sampleRate),
                                          channels: 1, interleaved: false),
-              let converter = AVAudioConverter(from: input, to: output) else { return nil }
-        converter.downmix = true
-        self.converter = converter
+              let converter = AVAudioConverter(from: mono, to: output) else { return nil }
+        self.channels = channels
+        self.mono = mono
         self.output = output
+        self.converter = converter
     }
 
     func convert(_ buffer: AVAudioPCMBuffer) -> [Float] {
-        let capacity = AVAudioFrameCount(Double(buffer.frameLength) * output.sampleRate / buffer.format.sampleRate) + 1
+        guard let source = buffer.floatChannelData,
+              let mixed = AVAudioPCMBuffer(pcmFormat: mono, frameCapacity: buffer.frameLength),
+              let destination = mixed.floatChannelData?[0] else { return [] }
+        let scale = 1 / Float(channels)
+        for frame in 0..<Int(buffer.frameLength) {
+            var sum: Float = 0
+            for channel in 0..<channels { sum += source[channel][frame] }
+            destination[frame] = sum * scale
+        }
+        mixed.frameLength = buffer.frameLength
+
+        let capacity = AVAudioFrameCount(Double(buffer.frameLength) * output.sampleRate / mono.sampleRate) + 1
         guard let converted = AVAudioPCMBuffer(pcmFormat: output, frameCapacity: capacity) else { return [] }
         var consumed = false
         var error: NSError?
@@ -160,7 +192,7 @@ private final class Converter: @unchecked Sendable {
             }
             consumed = true
             status.pointee = .haveData
-            return buffer
+            return mixed
         }
         guard error == nil, let channel = converted.floatChannelData?[0] else { return [] }
         return Array(UnsafeBufferPointer(start: channel, count: Int(converted.frameLength)))

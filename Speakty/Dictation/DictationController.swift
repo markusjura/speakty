@@ -3,16 +3,26 @@ import AVFoundation
 import Observation
 import os
 
-/// One dictation at a time: record while the shortcut is held, or between Start and Stop in the
-/// menu, then transcribe, post-process, and paste. Escape cancels at any point.
+/// One dictation at a time: record while the shortcut is held, or from a tap of the shortcut, or
+/// Start Dictation in the menu, until the next tap or Stop, then transcribe, post-process, and
+/// paste. Escape cancels at any point.
 @MainActor @Observable
 final class DictationController {
     enum Phase: Equatable {
         case idle
-        /// `isHeld` is true when the shortcut started it and its release ends it; the menu starts
-        /// recordings that run until Stop or the shortcut.
-        case recording(since: ContinuousClock.Instant, isHeld: Bool)
+        case recording(Trigger)
         case transcribing
+    }
+
+    /// How the shortcut ends a recording.
+    enum Trigger: Equatable {
+        /// Held since the instant; the release ends it, unless that makes it a tap.
+        case held(since: ContinuousClock.Instant)
+        /// Started by a tap or the menu; the next press of the shortcut ends it.
+        case latched
+        /// Pressed again to end it. The release ends it, and typing a shortcut such as ⌘C instead
+        /// cancels it, as during a hold.
+        case ending
     }
 
     private(set) var phase = Phase.idle
@@ -26,8 +36,8 @@ final class DictationController {
     @ObservationIgnored private var work: Task<Void, Never>?
     @ObservationIgnored private let logger = Logger(subsystem: "local.markus.Speakty", category: "Dictation")
 
-    /// A hold shorter than this is a slip, such as tapping Right ⌘ on the way to another key.
-    private static let shortestHold = Duration.milliseconds(250)
+    /// A release sooner than this after the press is a tap, which keeps recording until the next one.
+    private static let longestTap = Duration.milliseconds(250)
     /// Recording continues briefly after release, so a word finished while letting go isn't cut.
     private static let releaseTail = Duration.milliseconds(200)
 
@@ -48,21 +58,22 @@ final class DictationController {
 
     func handle(_ event: HotkeyMonitor.Event) {
         switch (event, phase) {
-        case (.pressed, .idle): start(isHeld: true)
-        case (.pressed, .recording): stop()
-        case (.released, .recording(let since, true)):
-            if since.duration(to: .now) < Self.shortestHold { cancel() } else { stop() }
-        case (.interrupted, .recording(_, true)), (.escape, _): cancel()
+        case (.pressed, .idle): start(.held(since: .now))
+        case (.pressed, .recording(.latched)): phase = .recording(.ending)
+        case (.released, .recording(.held(let since))):
+            if since.duration(to: .now) < Self.longestTap { phase = .recording(.latched) } else { stop() }
+        case (.released, .recording(.ending)): stop()
+        case (.interrupted, .recording(.held)), (.interrupted, .recording(.ending)), (.escape, _): cancel()
         default: break
         }
     }
 
     /// Starts a recording that runs until `stop()`, as the menu's Start Dictation does.
     func toggle() {
-        if isRecording { stop() } else if phase == .idle { start(isHeld: false) }
+        if isRecording { stop() } else if phase == .idle { start(.latched) }
     }
 
-    private func start(isHeld: Bool) {
+    private func start(_ trigger: Trigger) {
         guard transcriber.state == .ready else {
             NSSound.beep()
             return logger.info("Dictation waits for the model: \(String(describing: self.transcriber.state), privacy: .public)")
@@ -82,7 +93,7 @@ final class DictationController {
             NSSound.beep()
             return logger.error("Recording didn't start: \(error.localizedDescription, privacy: .public)")
         }
-        phase = .recording(since: .now, isHeld: isHeld)
+        phase = .recording(trigger)
         play(.start)
         if preferences.recording.mutesAudio {
             // After the start sound, which muting would cut off.
