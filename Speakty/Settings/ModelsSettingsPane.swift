@@ -24,9 +24,7 @@ private struct ModelRow: View {
     var body: some View {
         let state = transcriber.state
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: state == .ready ? "largecircle.fill.circle" : "circle")
-                .foregroundStyle(state == .ready ? Color.accentColor : SettingsColor.secondaryText)
-                .accessibilityLabel(state == .ready ? "Selected" : "Not downloaded")
+            RadioButton(isOn: state == .ready)
             VStack(alignment: .leading, spacing: 3) {
                 Text(model.title)
                 Text(model.summary).font(.callout).settingsValue()
@@ -65,5 +63,30 @@ private struct ModelRow: View {
         case .ready: Button("Remove") { confirmsRemoval = true }
         case .downloading, .loading: EmptyView()
         }
+    }
+}
+
+/// The selection radio, drawn by a one-option radio group: SwiftUI has radios only in pickers, and
+/// this is the same control as the Theme picker, so its blue matches. It only shows the state: the
+/// model is selected once it's ready.
+private struct RadioButton: View {
+    let isOn: Bool
+
+    var body: some View {
+        Picker(selection: .constant(isOn)) {
+            Text(verbatim: "").tag(true)
+        } label: {
+            EmptyView()
+        }
+        .pickerStyle(.radioGroup)
+        .labelsHidden()
+        // Not the settings row layout, whose spacer would push the radio off the leading edge.
+        .labeledContentStyle(.automatic)
+        // Just the circle, without the room for its empty option title.
+        .fixedSize()
+        .frame(width: 16, alignment: .leading)
+        .allowsHitTesting(false)
+        // A status, not a control VoiceOver could try to change.
+        .accessibilityRepresentation { Text(isOn ? "Selected" : "Not downloaded") }
     }
 }
