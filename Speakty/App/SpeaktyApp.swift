@@ -95,6 +95,7 @@ final class SpeaktyApplicationDelegate: NSObject, NSApplicationDelegate {
         self?.showSettings(.permissions)
     }
     lazy var updater = AppUpdater(environment: .init(isBusy: { [dictation] in dictation.phase != .idle }))
+    private lazy var overlay = OverlayController(dictation: dictation, preferences: preferences)
     private lazy var hotkeys = HotkeyMonitor(preferences: preferences, permissions: permissions) { [weak self] in
         self?.dictation.handle($0)
     }
@@ -116,6 +117,7 @@ final class SpeaktyApplicationDelegate: NSObject, NSApplicationDelegate {
         observePreferences()
         observeDictation()
         hotkeys.start()
+        overlay.start()
         transcriber.prepare()
         // Creating the updater starts Sparkle's schedule; the menu bar may have created it already.
         _ = updater
