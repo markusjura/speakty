@@ -26,7 +26,6 @@ struct RecordingSettingsPane: View {
                     Text("Top").tag(OverlayPosition.top)
                 }
                 .pickerStyle(.segmented)
-                .fixedSize()
             }
             Section("Microphone") {
                 Picker("Input", selection: $preferences.recording.microphoneUID) {

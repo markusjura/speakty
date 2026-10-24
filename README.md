@@ -1,6 +1,6 @@
 # Speakty
 
-A minimal native macOS dictation app tailored to Markus's workflow, from the same family as Shotty and Spotty. Hold Right ⌘, speak, let go, and the transcript is pasted where you're typing. Transcription runs on this Mac with Parakeet Ultra on the Neural Engine. No accounts, cloud models, or telemetry.
+A minimal native macOS dictation app tailored to Markus's workflow, from the same family as Shotty and Spotty. Hold Right ⌘, speak, let go, and the transcript is pasted where you're typing. Or tap Right ⌘ to start and again to stop. Transcription runs on this Mac with Parakeet Ultra on the Neural Engine. No accounts, cloud models, or telemetry.
 
 ## Install
 

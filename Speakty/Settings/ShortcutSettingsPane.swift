@@ -9,7 +9,7 @@ struct ShortcutSettingsPane: View {
         Form {
             Section("Dictation") {
                 HStack {
-                    Text("Hold to dictate")
+                    Text("Hold or tap to dictate")
                     Spacer()
                     ShortcutRecorder(shortcut: $preferences.recording.shortcut, hotkeys: hotkeys).fixedSize()
                 }
