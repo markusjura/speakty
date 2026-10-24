@@ -73,16 +73,22 @@ private struct VocabularySection: View {
 
     @ViewBuilder private func chip(_ word: String) -> some View {
         if editing == word {
-            TextField("Word", text: $draft)
-                .textFieldStyle(.plain)
-                .focused($focus, equals: .word)
-                .onSubmit(commitEdit)
-                .onExitCommand { editing = nil }
-                .fixedSize()
-                .padding(.horizontal, 9)
-                .frame(height: 24)
-                .background(SettingsColor.canvas, in: Capsule())
-                .overlay(Capsule().strokeBorder(Color.accentColor, lineWidth: 2))
+            // Sized by the text and with the remove button's room kept, so the chip keeps its shape
+            // and editing doesn't move the words after it.
+            HStack(spacing: WordChip.spacing) {
+                Text(draft).hidden().overlay {
+                    TextField("Word", text: $draft)
+                        .textFieldStyle(.plain)
+                        .labelsHidden()
+                        .focused($focus, equals: .word)
+                        .onSubmit(commitEdit)
+                        .onExitCommand { editing = nil }
+                }
+                Color.clear.frame(width: WordChip.removeSize)
+            }
+            .chipPadding()
+            .background(SettingsColor.canvas, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.accentColor, lineWidth: 2))
         } else {
             WordChip(word: word, highlight: trimmed) {
                 draft = word
@@ -117,32 +123,35 @@ private struct VocabularySection: View {
     }
 }
 
+/// A word as a token with its remove button always shown, as in Mail's address tokens and search
+/// fields, so the chip keeps one shape whether or not the pointer is over it.
 private struct WordChip: View {
     let word: String
     let highlight: String
     let edit: () -> Void
     let remove: () -> Void
-    @State private var isHovering = false
+    @State private var isHoveringRemove = false
+
+    static let spacing: CGFloat = 3
+    static let removeSize: CGFloat = 16
 
     var body: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: Self.spacing) {
             Text(highlighted).lineLimit(1)
             Button("Remove \(word)", systemImage: "xmark", action: remove)
                 .labelStyle(.iconOnly)
                 .buttonStyle(.plain)
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(SettingsColor.secondaryText)
-                .frame(width: 16, height: 16)
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(isHoveringRemove ? SettingsColor.primaryText : SettingsColor.secondaryText)
+                .frame(width: Self.removeSize, height: Self.removeSize)
+                .background(SettingsColor.primaryText.opacity(isHoveringRemove ? 0.12 : 0), in: Circle())
                 .contentShape(Circle())
-                .opacity(isHovering ? 1 : 0)
+                .onHover { isHoveringRemove = $0 }
         }
-        .padding(.leading, 9)
-        .padding(.trailing, 4)
-        .frame(height: 24)
+        .chipPadding()
         .background(SettingsColor.controlFill, in: Capsule())
         .contentShape(Capsule())
         .onTapGesture(perform: edit)
-        .onHover { isHovering = $0 }
         .accessibilityElement(children: .combine)
         .accessibilityAction(named: "Edit", edit)
         .accessibilityAction(named: "Remove", remove)
@@ -156,6 +165,13 @@ private struct WordChip: View {
             text[range].font = .body.weight(.semibold)
         }
         return text
+    }
+}
+
+private extension View {
+    /// A word chip's insets: the trailing one is smaller, since the remove button's circle has its own room.
+    func chipPadding() -> some View {
+        padding(.leading, 10).padding(.trailing, 4).frame(height: 24)
     }
 }
 
