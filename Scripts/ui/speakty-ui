@@ -1,0 +1,10 @@
+#!/bin/zsh
+# UI verification helper for Speakty. Compiles once into .build. Run without arguments for usage.
+set -euo pipefail
+dir=${0:A:h}
+binary=${dir:h:h}/.build/speakty-ui
+if [[ ! -x $binary || $dir/SpeaktyUI.swift -nt $binary ]]; then
+  mkdir -p ${binary:h}
+  swiftc -O $dir/SpeaktyUI.swift -o $binary
+fi
+exec $binary "$@"
