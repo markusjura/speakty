@@ -23,7 +23,7 @@ struct SpeaktyApp: App {
         MenuBarExtra(isInserted: Binding(
             get: { delegate.preferences.general.showsMenuBarIcon },
             set: { delegate.preferences.general.showsMenuBarIcon = $0 })) {
-            SpeaktyMenu(updater: delegate.updater)
+            SpeaktyMenu(dictation: delegate.dictation, updater: delegate.updater)
         } label: {
             MenuBarLabel(showsUpdateDot: delegate.updater.needsAttention)
         }
@@ -71,11 +71,15 @@ private struct MenuBarLabel: View {
     }()
 }
 
-/// The menu bar menu.
+/// The menu bar menu. Start Dictation records until Stop Dictation, for when a hand is on the mouse.
 private struct SpeaktyMenu: View {
+    let dictation: DictationController
     let updater: AppUpdater
 
     var body: some View {
+        Button(dictation.isRecording ? "Stop Dictation" : "Start Dictation") { dictation.toggle() }
+            .disabled(!dictation.isRecording && !dictation.canStart)
+        Divider()
         UpdateMenuItem(updater: updater)
         SettingsButton()
         Button("Quit Speakty") { NSApp.terminate(nil) }.keyboardShortcut("q")
@@ -86,7 +90,14 @@ private struct SpeaktyMenu: View {
 final class SpeaktyApplicationDelegate: NSObject, NSApplicationDelegate {
     let preferences = AppPreferences()
     let permissions = Permissions()
-    lazy var updater = AppUpdater(environment: .init(isBusy: { false }))
+    let transcriber = Transcriber()
+    lazy var dictation = DictationController(preferences: preferences, permissions: permissions, transcriber: transcriber) { [weak self] in
+        self?.showSettings(.permissions)
+    }
+    lazy var updater = AppUpdater(environment: .init(isBusy: { [dictation] in dictation.phase != .idle }))
+    private lazy var hotkeys = HotkeyMonitor(preferences: preferences, permissions: permissions) { [weak self] in
+        self?.dictation.handle($0)
+    }
     /// Open Settings makes Speakty a regular app, so the window gets a Dock icon, a Cmd-Tab entry,
     /// and the app menu, and window switchers list it like any other window.
     var settingsIsOpen = false {
@@ -103,6 +114,9 @@ final class SpeaktyApplicationDelegate: NSObject, NSApplicationDelegate {
         keepOneSpeaktyRunning()
         #endif
         observePreferences()
+        observeDictation()
+        hotkeys.start()
+        transcriber.prepare()
         // Creating the updater starts Sparkle's schedule; the menu bar may have created it already.
         _ = updater
         // Speakty starts silently, so a first launch would otherwise show nothing. Open Settings
@@ -154,6 +168,18 @@ final class SpeaktyApplicationDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in self?.observePreferences() }
         }
     }
+
+    /// Escape cancels only while a dictation runs, and the vocabulary follows Settings.
+    private func observeDictation() {
+        withObservationTracking {
+            hotkeys.watchesEscape = dictation.phase != .idle
+            transcriber.useVocabulary(preferences.transcript.vocabulary)
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.observeDictation() }
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) { dictation.cancel() }
 
     private func updateActivationPolicy() {
         // Read the preference unconditionally so preference observation keeps tracking it.

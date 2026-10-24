@@ -8,21 +8,35 @@ import Observation
 @MainActor @Observable
 final class AppPreferences {
     private enum Key: String {
-        case general
+        case general, recording, transcript
         var storageKey: String { "preferences.v1.\(rawValue)" }
     }
 
     @ObservationIgnored private let defaults: UserDefaults
     private var storedGeneral: GeneralPreferences
+    private var storedRecording: RecordingPreferences
+    private var storedTranscript: TranscriptPreferences
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         storedGeneral = Self.load(.general, from: defaults, default: GeneralPreferences(), isValid: \.isValid)
+        storedRecording = Self.load(.recording, from: defaults, default: RecordingPreferences(), isValid: \.isValid)
+        storedTranscript = Self.load(.transcript, from: defaults, default: TranscriptPreferences(), isValid: \.isValid)
     }
 
     var general: GeneralPreferences {
         get { storedGeneral }
         set { guard newValue.isValid, newValue != storedGeneral else { return }; storedGeneral = newValue; save(newValue, .general) }
+    }
+
+    var recording: RecordingPreferences {
+        get { storedRecording }
+        set { guard newValue.isValid, newValue != storedRecording else { return }; storedRecording = newValue; save(newValue, .recording) }
+    }
+
+    var transcript: TranscriptPreferences {
+        get { storedTranscript }
+        set { guard newValue.isValid, newValue != storedTranscript else { return }; storedTranscript = newValue; save(newValue, .transcript) }
     }
 
     private func save<Value: Encodable>(_ value: Value, _ key: Key) {
