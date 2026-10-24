@@ -12,6 +12,8 @@ enum SettingsColor {
     static let inactiveSidebarSelection = dynamic(light: 0xEBEBEB, dark: 0x272928)
     /// Fill of buttons such as Choose… and the shortcut recorder, as Raycast's settings buttons.
     static let controlFill = dynamic(light: 0xE0E0E0, dark: 0x323333)
+    /// The thin border of text fields at rest and of the hovered shortcut recorder, as Raycast's.
+    static let fieldBorder = dynamic(light: 0xC7C7C7, dark: 0x474747)
     static let primaryText = dynamic(light: 0x000000, dark: 0xFFFFFF)
     static let secondaryText = dynamic(light: 0x646464, dark: 0xA4A4A4)
     /// Success and granted states, such as an allowed permission's checkmark: deep green on light and
@@ -121,6 +123,30 @@ struct SettingsButtonStyle: ButtonStyle {
             .foregroundStyle(isProminent ? Color.white : SettingsColor.primaryText)
             .opacity(isEnabled ? 1 : 0.5)
             .contentShape(RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+extension View {
+    /// A text field with a thin border at rest and the accent border while editing, as the shortcut
+    /// recorder and a vocabulary word being edited. The system focus ring is a translucent accent that
+    /// reads gray on the settings colors.
+    func settingsTextField() -> some View {
+        modifier(SettingsTextField())
+    }
+}
+
+private struct SettingsTextField: ViewModifier {
+    @FocusState private var isFocused: Bool
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 6)
+        content
+            .textFieldStyle(.plain)
+            .focused($isFocused)
+            .padding(.horizontal, 8)
+            .frame(height: 28)
+            .background(SettingsColor.canvas, in: shape)
+            .overlay(shape.strokeBorder(isFocused ? Color.accentColor : SettingsColor.fieldBorder, lineWidth: isFocused ? 2 : 1))
     }
 }
 

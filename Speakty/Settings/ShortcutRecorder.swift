@@ -36,7 +36,7 @@ final class ShortcutRecorderButton: NSButton {
     // Raycast's hotkey recorder colors, except the recording border.
     private static let valueColor = NSColor.settings(light: 0x000000, dark: 0xFFFFFF)
     private static let placeholderColor = NSColor.settings(light: 0x959595, dark: 0x757575)
-    private static let hoverBorder = NSColor.settings(light: 0xC7C7C7, dark: 0x474747)
+    private static let hoverBorder = NSColor(SettingsColor.fieldBorder)
     private static let font = NSFont.systemFont(ofSize: 13)
     /// The visible box is 142 × 26 pt; the view is 1 pt larger on each side for the recording border.
     private static let boxInset: CGFloat = 1

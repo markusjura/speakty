@@ -234,9 +234,9 @@ private struct ReplacementsSection: View {
                 }
             }
             HStack(spacing: 8) {
-                TextField("Find", text: $draft.find)
+                TextField("Find", text: $draft.find).settingsTextField()
                 Image(systemName: "arrow.right").foregroundStyle(SettingsColor.secondaryText)
-                TextField("Replace with", text: $draft.replacement)
+                TextField("Replace with", text: $draft.replacement).settingsTextField()
                 Toggle(".*", isOn: $draft.isPattern)
                     .toggleStyle(.button)
                     .font(.system(.callout, design: .monospaced))
@@ -245,7 +245,6 @@ private struct ReplacementsSection: View {
                 Button(editing == nil ? "Add" : "Save", action: save)
                     .disabled(!draft.isValid)
             }
-            .textFieldStyle(.roundedBorder)
             .onSubmit(save)
             .onExitCommand(perform: reset)
             .padding(.vertical, 8)
