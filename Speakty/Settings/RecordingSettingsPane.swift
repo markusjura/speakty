@@ -2,7 +2,7 @@ import SwiftUI
 
 struct RecordingSettingsPane: View {
     @Bindable var preferences: AppPreferences
-    @State private var inputs = AudioDevices.inputs()
+    @State private var inputs: [AudioInput] = []
     /// Moves every style preview like a voice while the pane is open.
     @State private var meter = LevelMeter.demo()
 
@@ -44,6 +44,7 @@ struct RecordingSettingsPane: View {
         .onAppear { meter.start() }
         .onDisappear { meter.stop() }
         .task {
+            inputs = AudioDevices.inputs()
             for await _ in AudioDevices.changes() { inputs = AudioDevices.inputs() }
         }
     }

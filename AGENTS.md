@@ -9,7 +9,7 @@ Speakty is Shotty's and Spotty's sibling. Keep shared patterns (Settings layout 
 - `Scripts/run.sh dev` builds and relaunches Speakty Dev. Run it after every successful change, so the running app matches the code.
 - `Scripts/run.sh installed` switches back to the installed Speakty.
 - `Scripts/test.sh [TestClass]` runs all unit tests or one class.
-- `Scripts/log.sh` streams Speakty's log: shortcut events, recordings, transcription, pasting, and model downloads.
+- `Scripts/log.sh` streams Speakty's log: recordings, transcriptions, cancels, and errors.
 - Run `Scripts/release.sh` and `Scripts/publish.sh` only when I ask.
 - In a new worktree, run `./.worktree-setup.sh` once if the build fails with "Signing for Speakty requires a development team". It links `Local.xcconfig` from the main checkout, and not every worktree tool runs it.
 

@@ -57,14 +57,33 @@ final class DictationController {
     var canStart: Bool { phase == .idle && transcriber.state == .ready }
 
     func handle(_ event: HotkeyMonitor.Event) {
+        switch Self.action(for: event, in: phase, at: .now) {
+        case .start(let trigger): start(trigger)
+        case .become(let trigger): phase = .recording(trigger)
+        case .stop: stop()
+        case .cancel: cancel()
+        case .ignore: break
+        }
+    }
+
+    /// What a shortcut event does.
+    enum Action: Equatable {
+        case start(Trigger)
+        /// Keeps recording, to be ended differently.
+        case become(Trigger)
+        case stop, cancel, ignore
+    }
+
+    /// The hold-or-tap rules: a hold records until its release, and a tap until the next tap.
+    static func action(for event: HotkeyMonitor.Event, in phase: Phase, at now: ContinuousClock.Instant) -> Action {
         switch (event, phase) {
-        case (.pressed, .idle): start(.held(since: .now))
-        case (.pressed, .recording(.latched)): phase = .recording(.ending)
-        case (.released, .recording(.held(let since))):
-            if since.duration(to: .now) < Self.longestTap { phase = .recording(.latched) } else { stop() }
-        case (.released, .recording(.ending)): stop()
-        case (.interrupted, .recording(.held)), (.interrupted, .recording(.ending)), (.escape, _): cancel()
-        default: break
+        case (.pressed, .idle): .start(.held(since: now))
+        case (.pressed, .recording(.latched)): .become(.ending)
+        case (.released, .recording(.held(let since))): since.duration(to: now) < longestTap ? .become(.latched) : .stop
+        case (.released, .recording(.ending)): .stop
+        case (.interrupted, .recording(.held)), (.interrupted, .recording(.ending)): .cancel
+        case (.escape, .recording), (.escape, .transcribing): .cancel
+        default: .ignore
         }
     }
 
@@ -78,6 +97,8 @@ final class DictationController {
             NSSound.beep()
             return logger.info("Dictation waits for the model: \(String(describing: self.transcriber.state), privacy: .public)")
         }
+        // Speakty is rarely active, when access is re-read, so a revoked microphone would record silence.
+        permissions.refresh()
         switch recorder.usesMicrophone ? permissions.microphone : .authorized {
         case .authorized: break
         case .notDetermined:
@@ -108,11 +129,13 @@ final class DictationController {
         guard isRecording else { return }
         phase = .transcribing
         work?.cancel()
-        muter.restore()
         work = Task {
             // A cancel during the tail returns here, before it could stop a recording started since.
             do { try await Task.sleep(for: Self.releaseTail) } catch { return }
-            let speech = Transcript.speech(in: recorder.stop())
+            let samples = recorder.stop()
+            // Not before the tail ends, so resumed music doesn't end up in the recording.
+            muter.restore()
+            let speech = Transcript.speech(in: samples)
             defer { if !Task.isCancelled { phase = .idle } }
             guard !speech.isEmpty else { return logger.info("Heard no speech") }
             do {
@@ -124,7 +147,7 @@ final class DictationController {
                 if transcript.matchesSurroundingText {
                     text = Transcript.fitting(text, after: TextInserter.textBeforeCaret(), keepingCaseOf: transcript.vocabulary)
                 }
-                await TextInserter.insert(text)
+                TextInserter.insert(text)
                 play(.done)
             } catch {
                 NSSound.beep()

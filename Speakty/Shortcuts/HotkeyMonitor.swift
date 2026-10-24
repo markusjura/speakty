@@ -94,8 +94,14 @@ final class HotkeyMonitor {
             }
             return Unmanaged.passUnretained(event)
         }, userInfo: Unmanaged.passUnretained(self).toOpaque()) else {
-            // Trust can lag behind the grant; the next trust change retries.
-            return logger.error("Couldn't create the event tap")
+            // Trust can lag behind the grant, and no trust change follows to retry, so retry shortly.
+            logger.error("Couldn't create the event tap")
+            let key = watchedKey
+            Task {
+                try? await Task.sleep(for: .seconds(1))
+                if tap == nil, key != nil, watchedKey == key { installTap() }
+            }
+            return
         }
         let source = CFMachPortCreateRunLoopSource(nil, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)

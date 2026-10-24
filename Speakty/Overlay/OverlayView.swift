@@ -10,9 +10,10 @@ struct OverlayView: View {
     var isAnimating = true
 
     var body: some View {
-        // One clock for every style's motion; it also pauses with Reduce Motion.
-        TimelineView(.animation(paused: !isAnimating || Chrome.reduceMotion)) { context in
-            let time = context.date.timeIntervalSinceReferenceDate
+        // One clock for every style's motion. Reduce Motion stops the decorative motion, which time
+        // drives, and keeps the voice level, which still needs the clock to redraw.
+        TimelineView(.animation(paused: !isAnimating)) { context in
+            let time = Chrome.reduceMotion ? 0 : context.date.timeIntervalSinceReferenceDate
             switch style {
             case .minimal: MinimalOverlay(isTranscribing: isTranscribing, level: meter.level, time: time)
             case .glass: GlassOverlay(isTranscribing: isTranscribing, history: meter.history, time: time)

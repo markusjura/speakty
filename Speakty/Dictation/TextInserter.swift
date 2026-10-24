@@ -12,28 +12,44 @@ enum TextInserter {
     /// Marks the transcript as transient, so clipboard managers that honor nspasteboard.org skip it.
     private static let transientType = NSPasteboard.PasteboardType("org.nspasteboard.TransientType")
 
-    static func insert(_ text: String) async {
+    /// The clipboard from before the last transcript while it waits to be restored. A transcript
+    /// pasted meanwhile keeps it, so a quick second dictation doesn't restore the first transcript.
+    private static var pendingRestore: (items: [NSPasteboardItem], changeCount: Int, task: Task<Void, Never>)?
+
+    static func insert(_ text: String) {
         let pasteboard = NSPasteboard.general
         guard AXIsProcessTrusted() else {
             pasteboard.clearContents()
             pasteboard.setString(text, forType: .string)
             return logger.info("Copied the transcript; pasting needs Accessibility")
         }
-        let saved: [NSPasteboardItem] = pasteboard.pasteboardItems?.map { item in
-            let copy = NSPasteboardItem()
-            for type in item.types { if let data = item.data(forType: type) { copy.setData(data, forType: type) } }
-            return copy
-        } ?? []
+        let saved = if let pendingRestore, pendingRestore.changeCount == pasteboard.changeCount {
+            pendingRestore.items
+        } else {
+            copies(of: pasteboard)
+        }
+        pendingRestore?.task.cancel()
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
         pasteboard.setData(Data(), forType: transientType)
         let ours = pasteboard.changeCount
         postPaste()
-        // The target app reads the clipboard after it handles ⌘V, which can take a moment.
-        try? await Task.sleep(for: .milliseconds(400))
-        guard pasteboard.changeCount == ours else { return }
-        pasteboard.clearContents()
-        if !saved.isEmpty { pasteboard.writeObjects(saved) }
+        pendingRestore = (saved, ours, Task {
+            // The target app reads the clipboard after it handles ⌘V, which can take a moment.
+            do { try await Task.sleep(for: .milliseconds(400)) } catch { return }
+            pendingRestore = nil
+            guard pasteboard.changeCount == ours else { return }
+            pasteboard.clearContents()
+            if !saved.isEmpty { pasteboard.writeObjects(saved) }
+        })
+    }
+
+    private static func copies(of pasteboard: NSPasteboard) -> [NSPasteboardItem] {
+        pasteboard.pasteboardItems?.map { item in
+            let copy = NSPasteboardItem()
+            for type in item.types { if let data = item.data(forType: type) { copy.setData(data, forType: type) } }
+            return copy
+        } ?? []
     }
 
     /// The text before the caret on its line and a few lines back, or nil when the focused app

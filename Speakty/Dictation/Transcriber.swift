@@ -35,11 +35,12 @@ final class Transcriber {
     private(set) var state: State
 
     @ObservationIgnored private var manager: AsrManager?
-    /// Identifies the preparation in progress. FluidAudio downloads don't stop for cancellation, so a
-    /// preparation that `remove()` abandoned finishes on its own and must not touch the state.
-    @ObservationIgnored private var preparation: UUID?
+    @ObservationIgnored private var isPreparing = false
     @ObservationIgnored private var vocabulary: [String] = []
+    /// The keyword model, loaded once and shared by every vocabulary's session.
+    @ObservationIgnored private var ctcModels: Task<CtcModels, Error>?
     @ObservationIgnored private var boosting: VocabularyBoostingSession?
+    /// Builds `boosting`, and is nil once that finished or failed.
     @ObservationIgnored private var boostingTask: Task<Void, Never>?
     @ObservationIgnored private let logger = Logger(subsystem: "local.markus.Speakty", category: "Transcriber")
 
@@ -49,28 +50,26 @@ final class Transcriber {
 
     /// Downloads the model if needed and loads it, so the first dictation is as fast as the rest.
     func prepare() {
-        guard preparation == nil, manager == nil else { return }
-        let model = model, id = UUID()
-        preparation = id
+        guard !isPreparing, manager == nil else { return }
+        let model = model
+        isPreparing = true
         state = AsrModels.modelsExist(at: model.directory, version: model.version) ? .loading : .downloading(0)
         Task {
             do {
                 let models = try await AsrModels.downloadAndLoad(version: model.version) { progress in
-                    Task { @MainActor in if self.preparation == id { self.report(progress) } }
+                    Task { @MainActor in if self.isPreparing { self.report(progress) } }
                 }
                 let manager = AsrManager(config: .default)
                 try await manager.loadModels(models)
                 // A short transcription compiles the decoder paths, so the first dictation doesn't pay for it.
                 var decoder = TdtDecoderState.make()
                 _ = try? await manager.transcribe([Float](repeating: 0, count: Transcript.sampleRate), decoderState: &decoder)
-                guard preparation == id else { return }
-                preparation = nil
+                isPreparing = false
                 self.manager = manager
                 state = .ready
                 logger.info("\(model.title, privacy: .public) is ready")
             } catch {
-                guard preparation == id else { return }
-                preparation = nil
+                isPreparing = false
                 state = .failed(error.localizedDescription)
                 logger.error("Preparing \(model.title, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
             }
@@ -79,7 +78,7 @@ final class Transcriber {
 
     /// Deletes the downloaded model. Dictation stays off until it's downloaded again.
     func remove() {
-        preparation = nil
+        guard state == .ready else { return }
         manager = nil
         try? FileManager.default.removeItem(at: model.directory)
         state = .absent
@@ -90,22 +89,33 @@ final class Transcriber {
     func useVocabulary(_ terms: [String]) {
         guard terms != vocabulary else { return }
         vocabulary = terms
+        loadBoosting()
+    }
+
+    /// Builds the session for the current vocabulary, replacing one in progress.
+    private func loadBoosting() {
         boosting = nil
         boostingTask?.cancel()
+        boostingTask = nil
+        let terms = vocabulary
         guard !terms.isEmpty else { return }
+        let models = ctcModels ?? Task { try await CtcModels.downloadAndLoad(variant: .ctc110m) }
+        ctcModels = models
         boostingTask = Task {
+            defer { if !Task.isCancelled { boostingTask = nil } }
             do {
-                let ctcModels = try await CtcModels.downloadAndLoad(variant: .ctc110m)
                 // Dictation vocabularies are short names that sound like ordinary words. MacParakeet found
                 // a similarity floor of 0.65 keeps ordinary words from turning into terms, and FluidAudio
                 // recommends turning off its acoustic rescue for them, which otherwise replaced
                 // "pastes the text" with "Spotty" here.
                 let context = CustomVocabularyContext(terms: terms.map { CustomVocabularyTerm(text: $0) }, minSimilarity: 0.65)
-                let session = try await VocabularyBoostingSession(vocabulary: context, ctcModels: ctcModels,
+                let session = try await VocabularyBoostingSession(vocabulary: context, ctcModels: models.value,
                                                                   config: .init(spotterRescueEnabled: false))
                 guard !Task.isCancelled else { return }
                 boosting = session
             } catch {
+                // Usually no network for the first download. The next dictation tries again.
+                if ctcModels == models, (try? await models.value) == nil { ctcModels = nil }
                 logger.error("Vocabulary boosting is off: \(error.localizedDescription, privacy: .public)")
             }
         }
@@ -114,6 +124,7 @@ final class Transcriber {
     /// The transcript of 16 kHz mono speech, rescored against the vocabulary when there is one.
     func transcribe(_ samples: [Float]) async throws -> String {
         guard let manager else { throw TranscriberError.notReady }
+        if boosting == nil, boostingTask == nil { loadBoosting() }
         var decoder = TdtDecoderState.make()
         let result = try await manager.transcribe(samples, decoderState: &decoder)
         logger.info("Transcribed \(result.duration, format: .fixed(precision: 1)) s in \(result.processingTime, format: .fixed(precision: 2)) s")
@@ -121,7 +132,10 @@ final class Transcriber {
               let rescored = await boosting.rescore(text: result.text, tokenTimings: timings, audioSamples: samples) else {
             return result.text
         }
-        return rescored.text
+        let corrections = rescored.replacements.filter(\.shouldReplace).compactMap { replacement in
+            replacement.replacementWord.map { (phrase: replacement.originalWord, term: $0) }
+        }
+        return Transcript.correcting(result.text, corrections) ?? rescored.text
     }
 
     private func report(_ progress: DownloadProgress) {

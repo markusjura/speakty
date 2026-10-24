@@ -103,13 +103,14 @@ final class OutputMuter {
         UserDefaults.standard.set(uid, forKey: Self.mutedKey)
     }
 
+    /// Keeps the UID when unmuting fails, so the next stop or launch tries again.
     func restore() {
         guard let uid = UserDefaults.standard.string(forKey: Self.mutedKey) else { return }
-        UserDefaults.standard.removeObject(forKey: Self.mutedKey)
         // A device unplugged meanwhile has nothing left to unmute.
         if let device = AudioDevices.deviceID(forUID: uid), !Self.setMuted(device, false) {
-            logger.error("Couldn't unmute \(uid, privacy: .public)")
+            return logger.error("Couldn't unmute \(uid, privacy: .public)")
         }
+        UserDefaults.standard.removeObject(forKey: Self.mutedKey)
     }
 
     private static var muteAddress: AudioObjectPropertyAddress {
