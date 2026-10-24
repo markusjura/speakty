@@ -37,15 +37,19 @@ private struct VocabularySection: View {
                     .focused($focus, equals: .field)
                     .onSubmit { add(query) }
                     .onExitCommand { query = "" }
+                if canAdd {
+                    // The Return key that adds, as a keycap, as Raycast and Spotlight hint their actions.
+                    Button("Add", systemImage: "return") { add(query) }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.plain)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(SettingsColor.secondaryText)
+                        .frame(width: 22, height: 18)
+                        .background(SettingsColor.controlFill, in: RoundedRectangle(cornerRadius: 4))
+                }
             }
-            if !shown.isEmpty || canAdd {
+            if !shown.isEmpty {
                 FlowLayout(spacing: 6) {
-                    if canAdd {
-                        Button { add(query) } label: {
-                            Label("Add “\(trimmed)”", systemImage: "plus").lineLimit(1)
-                        }
-                        .buttonStyle(ChipButtonStyle(isGhost: true))
-                    }
                     ForEach(shown, id: \.self, content: chip)
                 }
                 .padding(.vertical, 10)
@@ -108,6 +112,8 @@ private struct VocabularySection: View {
         }
         words.insert(contentsOf: added, at: 0)
         query = ""
+        // Also after a click on the Return keycap, so the next word can follow.
+        focus = .field
     }
 
     /// An empty word removes it; a word that already exists elsewhere leaves the original.
@@ -172,20 +178,6 @@ private extension View {
     /// A word chip's insets: the trailing one is smaller, since the remove button's circle has its own room.
     func chipPadding() -> some View {
         padding(.leading, 10).padding(.trailing, 4).frame(height: 24)
-    }
-}
-
-private struct ChipButtonStyle: ButtonStyle {
-    var isGhost = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .padding(.horizontal, 10)
-            .frame(height: 24)
-            .foregroundStyle(Color.accentColor)
-            .overlay(Capsule().strokeBorder(Color.accentColor, lineWidth: 1))
-            .opacity(configuration.isPressed ? 0.6 : 1)
-            .contentShape(Capsule())
     }
 }
 
