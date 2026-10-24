@@ -60,7 +60,7 @@ The installer checks the checksum when the `.sha256` file is present, verifies t
 Grant permissions to the installed `/Applications/Speakty.app`. Speakty Dev has its own bundle ID, so it needs its own grants once; they then survive rebuilds. Grants are per Mac; signing does not carry them to another machine.
 
 - **Microphone** records your voice while you dictate. Speakty asks the first time you dictate.
-- **Accessibility** lets Speakty paste with ⌘V and watch a modifier key such as Right ⌘ as the shortcut. Without it, a shortcut with a key, such as ⌃⌥Space, still works, and transcripts land on the clipboard instead of being pasted.
+- **Accessibility** lets Speakty paste with ⌘V and watch a modifier key such as Right ⌘ as the shortcut. Without it, a shortcut with a key, such as ⌃⌥D, still works, and transcripts land on the clipboard instead of being pasted.
 - Input Monitoring, Screen Recording, and every other permission are not needed.
 
 Keeping the bundle ID and signing identity stable keeps the grants across updates.

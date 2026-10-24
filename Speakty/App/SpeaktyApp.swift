@@ -7,7 +7,8 @@ struct SpeaktyApp: App {
     var body: some Scene {
         // A window rather than a Settings scene, which SwiftUI always keeps at a fixed size.
         Window("Settings", id: SettingsView.windowID) {
-            SettingsView(preferences: delegate.preferences, permissions: delegate.permissions, updater: delegate.updater)
+            SettingsView(preferences: delegate.preferences, permissions: delegate.permissions, transcriber: delegate.transcriber,
+                         hotkeys: delegate.hotkeys, updater: delegate.updater)
                 .onAppear { delegate.settingsIsOpen = true }
                 .onDisappear { delegate.settingsIsOpen = false }
         }
@@ -96,7 +97,7 @@ final class SpeaktyApplicationDelegate: NSObject, NSApplicationDelegate {
     }
     lazy var updater = AppUpdater(environment: .init(isBusy: { [dictation] in dictation.phase != .idle }))
     private lazy var overlay = OverlayController(dictation: dictation, preferences: preferences)
-    private lazy var hotkeys = HotkeyMonitor(preferences: preferences, permissions: permissions) { [weak self] in
+    lazy var hotkeys = HotkeyMonitor(preferences: preferences, permissions: permissions) { [weak self] in
         self?.dictation.handle($0)
     }
     /// Open Settings makes Speakty a regular app, so the window gets a Dock icon, a Cmd-Tab entry,

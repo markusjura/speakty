@@ -21,6 +21,8 @@ final class HotkeyMonitor {
 
     /// Set while Settings records a new shortcut, so the current one doesn't fire.
     var isPaused = false
+    /// True when the key shortcut couldn't be registered, usually because another app has it.
+    private(set) var isTaken = false
     /// Escape is a global hotkey only while a dictation runs, so it stays free for other apps.
     var watchesEscape = false {
         didSet { if watchesEscape != oldValue { registerEscape(watchesEscape) } }
@@ -64,6 +66,7 @@ final class HotkeyMonitor {
         if isHeld { isHeld = false; handler(.released) }
         removeTap()
         unregister(Self.shortcutID)
+        isTaken = false
         guard !paused else { return }
         switch shortcut {
         case .modifierKey(let key):
@@ -71,7 +74,8 @@ final class HotkeyMonitor {
             watchedKey = key
             installTap()
         case .key(let code, let modifiers):
-            register(Self.shortcutID, keyCode: UInt32(code), modifiers: modifiers.carbonFlags)
+            // Exclusive, so a combination another app already owns fails here instead of never firing.
+            isTaken = !register(Self.shortcutID, keyCode: UInt32(code), modifiers: modifiers.carbonFlags, exclusive: true)
         }
     }
 
@@ -172,12 +176,17 @@ final class HotkeyMonitor {
         }
     }
 
-    private func register(_ id: UInt32, keyCode: UInt32, modifiers: UInt32) {
+    @discardableResult
+    private func register(_ id: UInt32, keyCode: UInt32, modifiers: UInt32, exclusive: Bool = false) -> Bool {
         var reference: EventHotKeyRef?
         let status = RegisterEventHotKey(keyCode, modifiers, EventHotKeyID(signature: Self.signature, id: id),
-                                         GetApplicationEventTarget(), 0, &reference)
-        guard status == noErr, let reference else { return logger.error("Couldn't register hot key \(id): \(status)") }
+                                         GetApplicationEventTarget(), exclusive ? OptionBits(kEventHotKeyExclusive) : 0, &reference)
+        guard status == noErr, let reference else {
+            logger.error("Couldn't register hot key \(id): \(status)")
+            return false
+        }
         hotKeys[id] = reference
+        return true
     }
 
     private func unregister(_ id: UInt32) {

@@ -19,6 +19,26 @@ enum AudioDevices {
         }
     }
 
+    /// Yields whenever a device connects or disconnects, until the consuming task ends.
+    static func changes() -> AsyncStream<Void> {
+        AsyncStream { continuation in
+            var address = devicesAddress
+            let queue = DispatchQueue(label: "local.markus.Speakty.devices")
+            let listener: @Sendable (UInt32, UnsafePointer<AudioObjectPropertyAddress>) -> Void = { _, _ in continuation.yield() }
+            let system = AudioObjectID(kAudioObjectSystemObject)
+            AudioObjectAddPropertyListenerBlock(system, &address, queue, listener)
+            continuation.onTermination = { _ in
+                var address = devicesAddress
+                AudioObjectRemovePropertyListenerBlock(system, &address, queue, listener)
+            }
+        }
+    }
+
+    private static var devicesAddress: AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDevices, mScope: kAudioObjectPropertyScopeGlobal,
+                                   mElement: kAudioObjectPropertyElementMain)
+    }
+
     static func deviceID(forUID uid: String) -> AudioDeviceID? {
         deviceIDs().first { self.uid(of: $0) == uid }
     }
@@ -36,8 +56,7 @@ enum AudioDevices {
     }
 
     private static func deviceIDs() -> [AudioDeviceID] {
-        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDevices,
-                                                 mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var address = devicesAddress
         var size: UInt32 = 0
         let system = AudioObjectID(kAudioObjectSystemObject)
         guard AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size) == noErr else { return [] }

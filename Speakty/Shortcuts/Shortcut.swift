@@ -3,7 +3,7 @@ import Carbon.HIToolbox
 import SwiftUI
 
 /// The dictation shortcut, held while speaking: a modifier key on its own, such as Right ⌘, or a key
-/// with modifiers, such as ⌃⌥Space. Key codes are layout-independent; display strings use the current
+/// with modifiers, such as ⌃⌥D. Key codes are layout-independent; display strings use the current
 /// ASCII-capable layout, as macOS menus do.
 enum Shortcut: Codable, Hashable, Sendable {
     case modifierKey(ModifierKey)

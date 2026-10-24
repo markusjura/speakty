@@ -1,13 +1,17 @@
 import SwiftUI
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case general, permissions
+    case general, recording, models, transcript, shortcuts, permissions
 
     var id: Self { self }
 
     var title: String {
         switch self {
         case .general: "General"
+        case .recording: "Recording"
+        case .models: "Models"
+        case .transcript: "Transcript"
+        case .shortcuts: "Shortcuts"
         case .permissions: "Permissions"
         }
     }
@@ -15,6 +19,10 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .general: "gearshape"
+        case .recording: "waveform"
+        case .models: "cpu"
+        case .transcript: "text.quote"
+        case .shortcuts: "command"
         case .permissions: "lock"
         }
     }
@@ -28,6 +36,8 @@ struct SettingsView: View {
     static let paneKey = "settingsPane"
     let preferences: AppPreferences
     let permissions: Permissions
+    let transcriber: Transcriber
+    let hotkeys: HotkeyMonitor
     let updater: AppUpdater
     @AppStorage(SettingsView.paneKey) private var pane = SettingsPane.general
     @State private var history = SettingsHistory()
@@ -53,11 +63,15 @@ struct SettingsView: View {
             Group {
                 switch pane {
                 case .general: GeneralSettingsPane(preferences: preferences, updater: updater)
+                case .recording: RecordingSettingsPane(preferences: preferences)
+                case .models: ModelsSettingsPane(transcriber: transcriber)
+                case .transcript: TranscriptSettingsPane(preferences: preferences)
+                case .shortcuts: ShortcutSettingsPane(preferences: preferences, permissions: permissions, hotkeys: hotkeys)
                 case .permissions: PermissionSettingsPane(permissions: permissions)
                 }
             }
             .formStyle(SettingsFormStyle())
-            .endsTextEditingOnReturnOrClickAway()
+            .endsTextEditingOnClickAway()
             .id(pane)
             // The canvas also fills the toolbar above the pane.
             .background(SettingsColor.canvas.ignoresSafeArea())

@@ -1,5 +1,4 @@
 import AppKit
-import Carbon.HIToolbox
 import SwiftUI
 
 extension AppearancePreference {
@@ -30,14 +29,15 @@ enum SystemSettingsLink {
 }
 
 extension View {
-    /// Ends text editing the way native forms do. Return commits the value and leaves the field,
-    /// and so does a click anywhere outside it. Left alone, AppKit keeps the field focused.
-    func endsTextEditingOnReturnOrClickAway() -> some View {
+    /// Ends text editing the way native forms do when clicking anywhere outside the field. Left
+    /// alone, AppKit keeps the field focused. Return keeps it focused, so words and rules can be
+    /// added one after another.
+    func endsTextEditingOnClickAway() -> some View {
         background(TextEditingEnder())
     }
 }
 
-/// Watches Return presses and clicks in its window and ends text editing after either.
+/// Watches clicks in its window and ends text editing after one outside the field being edited.
 private struct TextEditingEnder: NSViewRepresentable {
     func makeNSView(context: Context) -> MonitorView { MonitorView() }
     func updateNSView(_ nsView: MonitorView, context: Context) {}
@@ -50,19 +50,13 @@ private struct TextEditingEnder: NSViewRepresentable {
             if let monitor { NSEvent.removeMonitor(monitor) }
             monitor = nil
             guard window != nil else { return }
-            monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown]) { [weak self] event in
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
                 guard let window = self?.window, event.window === window,
                       let editor = window.firstResponder as? NSText,
                       // The field editor's delegate is the text field being edited.
-                      let field = editor.delegate as? NSView else { return event }
-                switch event.type {
-                case .keyDown where [kVK_Return, kVK_ANSI_KeypadEnter].contains(Int(event.keyCode)):
-                    // After the field commits the value. It then selects its text and stays focused.
-                    RunLoop.main.perform { MainActor.assumeIsolated { if window.firstResponder === editor { window.makeFirstResponder(nil) } } }
-                case .leftMouseDown, .rightMouseDown:
-                    if !field.bounds.contains(field.convert(event.locationInWindow, from: nil)) { window.makeFirstResponder(nil) }
-                default: break
-                }
+                      let field = editor.delegate as? NSView,
+                      !field.bounds.contains(field.convert(event.locationInWindow, from: nil)) else { return event }
+                window.makeFirstResponder(nil)
                 return event
             }
         }
