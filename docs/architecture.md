@@ -67,7 +67,7 @@ The Linux app in `linux/` ports the same pipeline, decisions, and settings to Ru
 - Smart spacing needs the text before the caret, which Linux apps don't expose reliably, so it's off on Linux.
 - Media pauses through MPRIS, and the output mutes through WirePlumber's `wpctl`.
 - The tray icon is optional and off by default; Settings opens from the app launcher. A second launch hands its command to the running Speakty through GApplication, so `speakty settings`, `speakty toggle`, and `speakty status` reach it.
-- Speakty installs per user, without root: each version in `~/.local/share/speakty/versions`, with `current` and `previous` links, and the `speakty.service` user unit. The updater follows the macOS app's rules. It reads `speakty-linux.json` from the newest `linux-v*` GitHub release, verifies the archive with Sparkle's EdDSA key, switches `current` atomically, and replaces its process once no dictation runs and the keyboards rested for ten minutes.
+- Speakty installs per user, without root: each version in `~/.local/share/speakty/versions`, with `current` and `previous` links, and the `speakty.service` user unit. The updater follows the macOS app's rules. It reads `speakty-linux.json` from the latest GitHub release, which carries both apps under one version, verifies the archive with Sparkle's EdDSA key, switches `current` atomically, and replaces its process once no dictation runs and the keyboards rested for ten minutes.
 
 ## Design
 

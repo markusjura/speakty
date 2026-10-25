@@ -14,7 +14,7 @@ The Linux app lives in `linux/`. Read `linux/AGENTS.md` before working on it. Tr
 - `Scripts/run.sh installed` switches back to the installed Speakty.
 - `Scripts/test.sh [TestClass]` runs all unit tests or one class.
 - `Scripts/log.sh` streams Speakty's log: recordings, transcriptions, cancels, and errors.
-- Run `Scripts/release.sh` and `Scripts/publish.sh` only when I ask.
+- Run `../scripts/release.sh` and `../scripts/publish.sh` only when I ask. They release both apps under the version in `../Version.xcconfig`.
 - In a new worktree, run `./.worktree-setup.sh` once if the build fails with "Signing for Speakty requires a development team". It links `Local.xcconfig` from the main checkout, and not every worktree tool runs it.
 
 ## Verifying UI changes

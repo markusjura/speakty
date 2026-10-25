@@ -9,10 +9,11 @@ description: Use when asked to release or publish the app, or when `release` is 
 
 ## Process
 
-1. Run `macos/Scripts/release.sh [bump]` from a clean tree whose HEAD contains `origin/main`. It bumps `macos/Config/Version.xcconfig`, pushes `chore: release <version>` and tag `v<version>` to `main`, packages the ZIP and DMG, installs and launches the app from `/Applications`, then publishes the GitHub release with the DMG, plus the signed ZIP and `appcast.xml` that installed copies update from.
-2. If a step after the push fails, fix the cause and run only the remaining steps the script prints. To retry only publishing, run `macos/Scripts/publish.sh <version>`. Never rerun `release.sh` for the same release; it would bump again.
+1. Run `scripts/release.sh [bump]` from a clean tree whose HEAD contains `origin/main`. It bumps `Version.xcconfig`, pushes `chore: release <version>` and tag `v<version>` to `main`, which starts the Linux build in GitHub Actions, packages the macOS ZIP and DMG, installs and launches the app from `/Applications`, then waits for the Linux build and publishes one GitHub release with both apps and the files both updaters read.
+2. If a step after the push fails, fix the cause and run only the remaining steps the script prints. To retry only publishing, run `scripts/publish.sh <version>`. Never rerun `release.sh` for the same release; it would bump again.
+3. When the Linux machine (SSH host `linux`) is on, install the release there with `speakty update`, or let it update itself.
 
-Completes when the GitHub release URL is confirmed and the installed app reports the new version.
+Completes when the GitHub release URL is confirmed and the installed macOS app reports the new version.
 
 ## Response
 

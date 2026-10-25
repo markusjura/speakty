@@ -1,0 +1,51 @@
+# Tests the Linux app on every pull request and push to main, and builds the release archive for
+# every v* tag, which scripts/publish.sh downloads, signs on the Mac, and publishes.
+# Debian 13 has older libraries than rolling distributions such as CachyOS, so a binary built
+# against them runs on both.
+name: Linux
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    defaults:
+      run:
+        working-directory: linux
+    steps:
+      - name: Install build dependencies
+        working-directory: /
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends build-essential pkg-config curl ca-certificates git \
+            libclang-dev libgtk-4-dev libadwaita-1-dev libgtk4-layer-shell-dev libpipewire-0.3-dev >/dev/null
+          curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - uses: actions/checkout@v5
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            linux/target
+          key: linux-${{ hashFiles('linux/Cargo.lock') }}
+          restore-keys: linux-
+      - name: Test
+        run: cargo test --locked
+      - name: Package
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          [ "$version" = "$(sed -n 's/^MARKETING_VERSION = //p' ../Version.xcconfig)" ] || { echo "The tag doesn't match Version.xcconfig." >&2; exit 1; }
+          SPEAKTY_VERSION=$version scripts/package.sh
+      - uses: actions/upload-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          name: speakty-linux
+          path: linux/target/releases/
+          if-no-files-found: error
