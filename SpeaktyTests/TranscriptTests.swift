@@ -37,6 +37,17 @@ final class TranscriptTests: XCTestCase {
         XCTAssertEqual(fit("Codexes run.", "and"), " codexes run.", "Only whole names count")
         XCTAssertEqual(fit(", right?", "It works"), ", right?")
         XCTAssertEqual(fit("Hello", "say ("), "hello")
+        XCTAssertEqual(fit("\n\nNext topic.", "Done"), "\n\nNext topic.", "A spoken new paragraph gets no space")
+    }
+
+    func testClosingEndsAnOpenLastSentence() {
+        XCTAssertEqual(Transcript.closing("Here's a test. Like this one"), "Here's a test. Like this one.")
+        XCTAssertEqual(Transcript.closing("Is it done? Yes"), "Is it done? Yes.")
+        XCTAssertEqual(Transcript.closing("Here's a test. Done!"), "Here's a test. Done!")
+        XCTAssertEqual(Transcript.closing("swift concurrency docs"), "swift concurrency docs", "One phrase stays open")
+        XCTAssertEqual(Transcript.closing("Version 3.5 of the app"), "Version 3.5 of the app")
+        XCTAssertEqual(Transcript.closing("Dr. Smith opening hours"), "Dr. Smith opening hours", "An abbreviation ends no sentence")
+        XCTAssertEqual(Transcript.closing("Wir treffen uns z. B. morgen"), "Wir treffen uns z. B. morgen")
     }
 
     func testSpeechTrimsSilenceAndPadsTheEnd() {

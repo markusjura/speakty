@@ -1,4 +1,5 @@
 import Foundation
+import NaturalLanguage
 
 /// A find-and-replace rule applied to every transcript. Plain text matches whole words and ignores
 /// case; a pattern is a regular expression whose replacement uses $1 for its groups.
@@ -50,6 +51,25 @@ enum Transcript {
         }
     }
 
+    /// Ends a transcript of several sentences with a period when the last one is left open, as Parakeet
+    /// does when speech stops without the voice falling. A transcript of one phrase stays open, since
+    /// it may be a search, a name, or the middle of a sentence.
+    static func closing(_ text: String) -> String {
+        guard let last = text.last, last.isLetter || last.isNumber, sentences(in: text).count > 1 else { return text }
+        return text + "."
+    }
+
+    /// The sentences of `text`, without the whitespace between them. The tokenizer knows
+    /// abbreviations, so "Dr. Smith" is one sentence.
+    static func sentences(in text: String) -> [Range<String.Index>] {
+        let tokenizer = NLTokenizer(unit: .sentence)
+        tokenizer.string = text
+        if let language = NLLanguageRecognizer.dominantLanguage(for: text) { tokenizer.setLanguage(language) }
+        return tokenizer.tokens(for: text.startIndex..<text.endIndex).compactMap { range in
+            text[range].lastIndex { !$0.isWhitespace }.map { range.lowerBound..<text.index(after: $0) }
+        }
+    }
+
     /// Swaps each recognized phrase for the vocabulary term that replaced it. FluidAudio's rescored
     /// text drops the punctuation after a replaced phrase, as in "speak to, please" becoming
     /// "Speakty please"; this keeps it. FluidAudio replaces a phrase where it was spoken, not where it
@@ -78,7 +98,7 @@ enum Transcript {
         return result + text[rest...]
     }
 
-    /// Fits a transcript to the text before the caret. Mid-line it gets a leading space, and
+    /// Fits a transcript to the text before the caret. Mid-line it gets a leading space, unless it starts with a line break, and
     /// mid-sentence a capitalized first word is lowercased, unless it's "I", an acronym, or starts a
     /// name from `names`. At the start of a line, or when the text before the caret is unknown, it's unchanged.
     static func fitting(_ text: String, after preceding: String?, keepingCaseOf names: [String]) -> String {
@@ -91,7 +111,7 @@ enum Transcript {
         if !".!?:".contains(before), isPlainCapitalized {
             result = first.lowercased() + text.dropFirst()
         }
-        if let last = line.last, !last.isWhitespace, !"([{\"'“‘/".contains(last), !",.;:!?)]}…".contains(first) {
+        if let last = line.last, !last.isWhitespace, !"([{\"'“‘/".contains(last), !",.;:!?)]}…".contains(first), !first.isNewline {
             result = " " + result
         }
         return result

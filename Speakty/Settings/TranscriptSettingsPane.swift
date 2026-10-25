@@ -7,8 +7,10 @@ struct TranscriptSettingsPane: View {
         Form {
             VocabularySection(words: $preferences.transcript.vocabulary)
             ReplacementsSection(replacements: $preferences.transcript.replacements)
-            Section("Pasting") {
+            Section("Formatting") {
                 Toggle("Smart spacing and capitalization", isOn: $preferences.transcript.matchesSurroundingText)
+                Toggle("Smart paragraphs", isOn: $preferences.transcript.splitsParagraphs)
+                    .help("Splits long dictations into paragraphs, and starts one where you say \"new paragraph\".")
             }
         }
     }
