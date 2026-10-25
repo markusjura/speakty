@@ -90,7 +90,7 @@ private struct VocabularySection: View {
                         .onSubmit(commitEdit)
                         .onExitCommand { editing = nil }
                 }
-                Color.clear.frame(width: RemoveButton.size)
+                Color.clear.frame(width: RemoveButton.Size.chip.visible)
             }
             .chipPadding()
             .background(SettingsColor.canvas, in: Capsule())
@@ -144,7 +144,7 @@ private struct WordChip: View {
     var body: some View {
         HStack(spacing: Self.spacing) {
             Text(highlighted).lineLimit(1)
-            RemoveButton(title: "Remove \(word)", action: remove)
+            RemoveButton(title: "Remove \(word)", size: .chip, action: remove)
         }
         .chipPadding()
         .background(SettingsColor.controlFill, in: Capsule())
@@ -166,24 +166,55 @@ private struct WordChip: View {
     }
 }
 
-/// A small × that fills its circle under the pointer, removing a vocabulary word or a replacement.
+/// Removes a vocabulary word or a replacement. It lays out at its visible size, but takes clicks and
+/// hover in a larger square around it, since a small glyph is a hard target.
 private struct RemoveButton: View {
+    enum Size {
+        /// An × inside a word's pill, which fills a circle under the pointer, like a token's.
+        case chip
+        /// A filled circle with the × cut out beside a replacement's 28 pt controls, like a search
+        /// field's clear button. One symbol, so the × is centered in its circle.
+        case row
+
+        /// The visible size, which sets the layout.
+        var visible: CGFloat { self == .chip ? 16 : 18 }
+        /// The chip's matches the shortcut recorder's 24 pt clear button; the row's spans the row's controls.
+        var target: CGFloat { self == .chip ? 24 : 28 }
+    }
+
     let title: String
+    var size = Size.row
     let action: () -> Void
     @State private var isHovering = false
 
-    static let size: CGFloat = 16
-
     var body: some View {
-        Button(title, systemImage: "xmark", action: action)
-            .labelStyle(.iconOnly)
-            .buttonStyle(.plain)
-            .font(.system(size: 8, weight: .bold))
-            .foregroundStyle(isHovering ? SettingsColor.primaryText : SettingsColor.secondaryText)
-            .frame(width: Self.size, height: Self.size)
-            .background(SettingsColor.primaryText.opacity(isHovering ? 0.12 : 0), in: Circle())
-            .contentShape(Circle())
-            .onHover { isHovering = $0 }
+        Button(action: action) {
+            glyph
+                .frame(width: size.visible, height: size.visible)
+                .frame(width: size.target, height: size.target)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .onHover { isHovering = $0 }
+        // Gives back the target's extra room, so the visible glyph alone sets the layout.
+        .padding((size.visible - size.target) / 2)
+    }
+
+    @ViewBuilder private var glyph: some View {
+        switch size {
+        case .chip:
+            Image(systemName: "xmark")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(isHovering ? SettingsColor.primaryText : SettingsColor.secondaryText)
+                .frame(width: size.visible, height: size.visible)
+                .background(SettingsColor.primaryText.opacity(isHovering ? 0.12 : 0), in: Circle())
+        case .row:
+            Image(systemName: "xmark.circle.fill")
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(SettingsColor.secondaryText.opacity(isHovering ? 1 : 0.6))
+        }
     }
 }
 
