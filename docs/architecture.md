@@ -20,7 +20,7 @@ This is a high-level overview. The code is the source of truth for details.
 - `DictationController` owns the dictation state (idle, recording, transcribing) and runs the pipeline. It's the only place that coordinates the other pieces.
 - `AudioRecorder` records 16 kHz mono from a fresh `AVAudioEngine` per dictation.
 - `Transcriber` downloads, loads, and runs Parakeet Ultra through FluidAudio on the Neural Engine, and rescores against the vocabulary with a small CTC model when there is one.
-- `Transcript` holds the pure steps between audio and paste: silence trimming, replacements, vocabulary corrections, and fitting text to what's before the caret.
+- `Transcript` holds the pure steps between audio and paste: silence trimming, replacements, vocabulary corrections, smart paragraphs, and fitting text to what's before the caret.
 - `TextInserter` pastes through the clipboard with ⌘V, then restores the previous clipboard.
 - `OverlayController` shows the recording display in a non-activating, click-through panel, so focus stays in the app being typed in.
 - `AppPreferences` is the one typed preference store, `Permissions` tracks Microphone and Accessibility, and `AppUpdater` runs Sparkle.
@@ -30,13 +30,14 @@ This is a high-level overview. The code is the source of truth for details.
 1. The shortcut is held to talk, or tapped to toggle. Typing another key during a hold, or Esc, cancels.
 2. Recording continues for a short tail after release.
 3. Silence is trimmed and padded, then the samples are transcribed in one batch. No streaming.
-4. Replacements run, and with smart spacing on, the text is fitted to what's before the caret.
+4. Replacements run, and an open last sentence of a multi-sentence transcript gets a period. With smart paragraphs on, a spoken "new paragraph" becomes a blank line and a long transcript is split into paragraphs, and with smart spacing on, the text is fitted to what's before the caret.
 5. The text is pasted. Failures beep and log; there is no error UI.
 
 ## Decisions
 
 - One model, Parakeet Ultra, with automatic language detection. Models are rows in Settings > Models, but the code keeps one concrete `Transcriber` until a second engine arrives.
 - No LLM rewriting or cleanup model. Parakeet already writes punctuation and capitalization.
+- Smart paragraphs choose breaks at sentence boundaries by cost: even paragraph lengths, and openings that change or continue the topic. Pauses aren't used, since a pause to think is as long as a pause between topics. A spoken "new paragraph" breaks exactly where it's said. No model, so it's instant and predictable.
 - App state lives on the main actor. The audio engine lives on the recorder's own serial queue, so starting a slow interface never delays shortcut events.
 - Decision logic lives in pure functions, such as the hold-or-tap rules and `Transcript`, and is unit tested directly.
 - Updates relaunch the app only when no dictation is running.

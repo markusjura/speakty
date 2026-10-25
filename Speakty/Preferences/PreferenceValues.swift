@@ -119,6 +119,9 @@ struct TranscriptPreferences: Codable, Equatable, Sendable {
     var replacements: [Replacement] = []
     /// Adds a leading space and lowercases the first word to match the text before the caret.
     var matchesSurroundingText = true
+    /// Splits a long transcript into paragraphs, separated by a blank line, and starts one where
+    /// "new paragraph" is said.
+    var splitsParagraphs = true
 
     var isValid: Bool { replacements.allSatisfy(\.isValid) }
 }
