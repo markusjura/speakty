@@ -71,7 +71,11 @@ struct RecordingSettingsPane: View {
                     }
                 }
                 .buttonStyle(.borderless)
+            }
+            Section("Sound") {
+                Toggle("Play sounds", isOn: $preferences.recording.playsSounds)
                 Toggle("Mute audio while recording", isOn: $preferences.recording.mutesAudio)
+                Toggle("Pause media while recording", isOn: $preferences.recording.pausesMedia)
             }
         }
         .onAppear { meter.start() }

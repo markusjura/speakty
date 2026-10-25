@@ -41,8 +41,16 @@ final class AppPreferences {
 
     private func save<Value: Encodable>(_ value: Value, _ key: Key) {
         // Encoding plain Codable values cannot fail; a failure would be a programming error.
-        guard let data = try? JSONEncoder().encode(value) else { return assertionFailure("Unencodable \(key)") }
-        defaults.set(data, forKey: key.storageKey)
+        guard let data = try? JSONEncoder().encode(value),
+              let encoded = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return assertionFailure("Unencodable \(key)")
+        }
+        // Synthesized Codable leaves out a nil optional, which loading would replace with its
+        // default, so a cleared shortcut would come back. Null keeps it cleared. The sections'
+        // stored property names are their coding keys.
+        let nulls = Mirror(reflecting: value).children.compactMap(\.label).map { ($0, NSNull() as Any) }
+        let complete = encoded.merging(nulls) { encoded, _ in encoded }
+        defaults.set(try? JSONSerialization.data(withJSONObject: complete), forKey: key.storageKey)
     }
 
     private static func load<Value: Codable>(_ key: Key, from defaults: UserDefaults, default base: Value,

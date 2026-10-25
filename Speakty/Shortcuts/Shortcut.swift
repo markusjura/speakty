@@ -2,9 +2,9 @@ import AppKit
 import Carbon.HIToolbox
 import SwiftUI
 
-/// The dictation shortcut, held while speaking: a modifier key on its own, such as Right ⌘, or a key
-/// with modifiers, such as ⌃⌥D. Key codes are layout-independent; display strings use the current
-/// ASCII-capable layout, as macOS menus do.
+/// A shortcut: a modifier key on its own, such as Right ⌘, or a key with or without modifiers, such
+/// as ⌃⌥D or Esc. Key codes are layout-independent; display strings use the current ASCII-capable
+/// layout, as macOS menus do.
 enum Shortcut: Codable, Hashable, Sendable {
     case modifierKey(ModifierKey)
     case key(UInt16, Modifiers)
@@ -43,13 +43,27 @@ enum Shortcut: Codable, Hashable, Sendable {
         }
     }
 
-    /// A key shortcut from a key-down event, or nil when it would get in the way of typing: a key
-    /// needs a modifier, except the function keys F1 to F20.
+    /// A key shortcut from a key-down event, or nil for a modifier key.
     init?(keyEvent event: NSEvent) {
-        let modifiers = Modifiers(flags: event.modifierFlags)
-        guard event.type == .keyDown, !KeyNames.modifierKeyCodes.contains(Int(event.keyCode)),
-              !modifiers.isEmpty || KeyNames.functionKeyCodes.contains(Int(event.keyCode)) else { return nil }
-        self = .key(event.keyCode, modifiers)
+        guard event.type == .keyDown, !KeyNames.modifierKeyCodes.contains(Int(event.keyCode)) else { return nil }
+        self = .key(event.keyCode, Modifiers(flags: event.modifierFlags))
+    }
+
+    /// A global shortcut mustn't get in the way of typing, so a key needs a modifier, except the
+    /// function keys F1 to F20.
+    var worksGlobally: Bool {
+        switch self {
+        case .modifierKey: true
+        case .key(let code, let modifiers): !modifiers.isEmpty || KeyNames.functionKeyCodes.contains(Int(code))
+        }
+    }
+
+    /// The modifiers that are down while the shortcut is held.
+    var modifiers: Modifiers {
+        switch self {
+        case .modifierKey(let key): key.modifier
+        case .key(_, let modifiers): modifiers
+        }
     }
 
     /// A modifier key watched alone needs an event tap, and so Accessibility.
@@ -60,6 +74,7 @@ enum Shortcut: Codable, Hashable, Sendable {
     @MainActor var displayString: String {
         switch self {
         case .modifierKey(let key): key.title
+        case .key(let code, let modifiers) where modifiers.isEmpty: KeyNames.name(for: code, alone: true)
         case .key(let code, let modifiers): modifiers.symbols + KeyNames.name(for: code)
         }
     }
@@ -106,6 +121,16 @@ enum ModifierKey: String, Codable, CaseIterable, Sendable {
         }
     }
 
+    var modifier: Shortcut.Modifiers {
+        switch self {
+        case .rightCommand, .leftCommand: .command
+        case .rightOption, .leftOption: .option
+        case .rightControl, .leftControl: .control
+        case .rightShift, .leftShift: .shift
+        case .function: []
+        }
+    }
+
     var title: String {
         switch self {
         case .rightCommand: "Right ⌘"
@@ -140,8 +165,16 @@ enum KeyNames {
         kVK_Home: "↖", kVK_End: "↘", kVK_PageUp: "⇞", kVK_PageDown: "⇟", kVK_ANSI_KeypadEnter: "⌤",
     ]
 
-    static func name(for keyCode: UInt16) -> String {
+    /// Spelled out on their own, where a lone glyph such as ⎋ is hard to read.
+    private static let spelled: [Int: String] = [
+        kVK_Escape: "Esc", kVK_Return: "Return", kVK_ANSI_KeypadEnter: "Enter", kVK_Tab: "Tab",
+        kVK_Delete: "Delete", kVK_ForwardDelete: "Forward Delete",
+    ]
+
+    /// The key's name, spelled out when `alone` instead of in a combination such as ⌘↩.
+    static func name(for keyCode: UInt16, alone: Bool = false) -> String {
         let code = Int(keyCode)
+        if alone, let spelled = spelled[code] { return spelled }
         if let special = special[code] { return special }
         if let index = functionKeyCodes.firstIndex(of: code) { return "F\(index + 1)" }
         return character(for: keyCode).map { String($0).uppercased() } ?? "Key \(keyCode)"

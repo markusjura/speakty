@@ -1,3 +1,4 @@
+import Carbon.HIToolbox
 import Foundation
 
 // Typed, persisted preference sections. Each section is one Codable value stored by
@@ -13,8 +14,6 @@ struct GeneralPreferences: Codable, Equatable, Sendable {
     var usesTranslucentSidebar = true
     var showsMenuBarIcon = true
     var showsDockIcon = false
-    /// A soft tick when dictation starts and when the text lands.
-    var playsSounds = true
 
     /// Both icons may be hidden; reopening Speakty from Finder or Spotlight shows Settings.
     var isValid: Bool { true }
@@ -33,8 +32,37 @@ enum OverlayStyle: String, Codable, CaseIterable, Sendable {
 
 enum OverlayPosition: String, Codable, CaseIterable, Sendable { case bottom, top }
 
+/// How the dictation shortcut records.
+enum ShortcutMode: String, Codable, CaseIterable, Sendable {
+    /// A hold records until the release, and a tap until the next press.
+    case holdOrTap
+    case hold
+    case tap
+}
+
+/// What the shortcuts in Settings > Shortcuts do. Dictate is a global shortcut; Cancel and Send
+/// are hot keys only while a dictation runs, so their keys keep working in other apps meanwhile.
+enum DictationCommand: CaseIterable, Sendable {
+    case dictate, cancel, send
+
+    var title: String {
+        switch self {
+        case .dictate: "Dictate"
+        case .cancel: "Cancel"
+        case .send: "Send"
+        }
+    }
+
+    var isGlobal: Bool { self == .dictate }
+}
+
 struct RecordingPreferences: Codable, Equatable, Sendable {
     var shortcut = Shortcut.default
+    var shortcutMode = ShortcutMode.holdOrTap
+    /// Nil turns the key off.
+    var cancelShortcut: Shortcut? = .key(UInt16(kVK_Escape), [])
+    /// Stops the dictation, pastes, and presses Return. Nil turns the key off.
+    var sendShortcut: Shortcut? = .key(UInt16(kVK_Return), [])
     var style = OverlayStyle.dark
     /// The display's size, as a multiple of the default size.
     var scale = 1.0
@@ -44,13 +72,44 @@ struct RecordingPreferences: Codable, Equatable, Sendable {
     var edgeDistance = 24.0
     /// The Core Audio UID of the chosen microphone; nil follows the system default input.
     var microphoneUID: String?
+    /// A soft tick when dictation starts and when the text lands.
+    var playsSounds = true
     var mutesAudio = true
+    var pausesMedia = false
 
     static let edgeDistanceRange = 0.0...120.0
     /// Mostly larger: the default is already small, so it sits a fifth of the way along.
     static let scaleRange = 0.75...2.0
 
-    var isValid: Bool { Self.edgeDistanceRange.contains(edgeDistance) && Self.scaleRange.contains(scale) }
+    /// The ranges hold, and no two commands share a shortcut.
+    var isValid: Bool {
+        let shortcuts = DictationCommand.allCases.compactMap { self[$0] }
+        return Self.edgeDistanceRange.contains(edgeDistance) && Self.scaleRange.contains(scale)
+            && Set(shortcuts).count == shortcuts.count
+    }
+
+    /// The command's shortcut. Dictate always has one.
+    subscript(command: DictationCommand) -> Shortcut? {
+        get {
+            switch command {
+            case .dictate: shortcut
+            case .cancel: cancelShortcut
+            case .send: sendShortcut
+            }
+        }
+        set {
+            switch command {
+            case .dictate: if let newValue { shortcut = newValue }
+            case .cancel: cancelShortcut = newValue
+            case .send: sendShortcut = newValue
+            }
+        }
+    }
+
+    /// The other command already using `shortcut`, which takes it instead of `command`.
+    func command(using shortcut: Shortcut, besides command: DictationCommand) -> DictationCommand? {
+        DictationCommand.allCases.first { $0 != command && self[$0] == shortcut }
+    }
 }
 
 struct TranscriptPreferences: Codable, Equatable, Sendable {
