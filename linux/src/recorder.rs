@@ -100,7 +100,8 @@ impl Recorder {
         if self.commands.send(Command::Stop { samples }).is_err() {
             return Vec::new();
         }
-        result.recv().await.unwrap_or_default()
+        // Without an answer PipeWire isn't running, and there's nothing to wait for.
+        gtk::glib::future_with_timeout(std::time::Duration::from_secs(2), result.recv()).await.ok().and_then(Result::ok).unwrap_or_default()
     }
 
     pub fn cancel(&self) {
@@ -234,9 +235,10 @@ fn open_stream(
         .process(move |stream, format| {
             let Some(mut buffer) = stream.dequeue_buffer() else { return };
             let Some(data) = buffer.datas_mut().first_mut() else { return };
-            let size = data.chunk().size() as usize;
+            let (offset, size) = (data.chunk().offset() as usize, data.chunk().size() as usize);
             let Some(bytes) = data.data() else { return };
-            let samples: Vec<f32> = bytes[..size.min(bytes.len())]
+            let start = offset.min(bytes.len());
+            let samples: Vec<f32> = bytes[start..(start + size).min(bytes.len())]
                 .chunks_exact(4)
                 .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
                 .collect();

@@ -6,6 +6,8 @@ Speakty is Shotty's and Spotty's sibling. Keep shared patterns (Settings layout 
 
 The macOS app lives in `macos/`. Its scripts run from any directory; paths below are relative to `macos/`. `Local.xcconfig` stays in the repository root.
 
+The Linux app lives in `linux/`. Read `linux/AGENTS.md` before working on it. Transcript rules are shared: change them in both apps, and add the case to `spec/transcript-cases.json`, which both test suites run.
+
 ## Commands
 
 - `Scripts/run.sh dev` builds and relaunches Speakty Dev. Run it after every successful change, so the running app matches the code.

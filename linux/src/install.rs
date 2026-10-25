@@ -46,6 +46,10 @@ pub fn is_staged(version: &str) -> bool {
 
 /// Unpacks `binary` as `version`, replacing a partial earlier attempt.
 pub fn stage(version: &str, binary: &[u8]) -> std::io::Result<()> {
+    // An empty or truncated file would run as an empty shell script and exit without a word.
+    if !binary.starts_with(b"\x7fELF") {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Not a Linux executable"));
+    }
     let folder = versions().join(version);
     let partial = versions().join(format!(".{version}.partial"));
     let _ = std::fs::remove_dir_all(&partial);

@@ -71,11 +71,18 @@ pub fn speech(samples: &[f32]) -> Vec<f32> {
 pub fn applying(replacements: &[Replacement], text: &str) -> String {
     replacements.iter().fold(text.to_string(), |text, rule| {
         let Some(expression) = rule.expression() else { return text };
-        expression
-            .replace_all(&text, |captures: &Captures<str>| {
-                if rule.is_pattern { expand(&rule.replacement, captures) } else { rule.replacement.clone() }
-            })
-            .into_owned()
+        // Backreferences and lookarounds backtrack, and a pattern that backtracks too long fails at
+        // run time; the rule is skipped then.
+        let replaced = expression.try_replacen(&text, 0, |captures: &Captures<str>| {
+            if rule.is_pattern { expand(&rule.replacement, captures) } else { rule.replacement.clone() }
+        });
+        match replaced {
+            Ok(replaced) => replaced.into_owned(),
+            Err(error) => {
+                log::warn!("Skipped the replacement for {:?}: {error}", rule.find);
+                text
+            }
+        }
     })
 }
 

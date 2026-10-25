@@ -148,7 +148,13 @@ impl App {
 
     /// Handles a command line, from this launch or one handed over by a later launch.
     fn command(self: &Rc<Self>, arguments: &[String], is_first_launch: bool, line: &gio::ApplicationCommandLine) -> i32 {
-        match arguments.first().map(String::as_str) {
+        let command = arguments.first().map(String::as_str);
+        if is_first_launch && command.is_some_and(|c| c != "settings") {
+            line.printerr_literal(&format!("{} isn't running.\n", identity::NAME));
+            self.quit();
+            return 1;
+        }
+        match command {
             None if is_first_launch => {
                 // The first launch opens Settings where something still needs doing.
                 if self.hotkeys.can_read_keyboards() == Some(false) || !self.paster.can_paste() {
@@ -157,7 +163,8 @@ impl App {
                     self.show_settings(Some(Pane::Models));
                 }
             }
-            None | Some("settings") => self.show_settings(None),
+            None => self.show_settings(None),
+            Some("settings") => self.show_settings(arguments.get(1).and_then(|name| Pane::named(name))),
             Some("start") if !self.dictation.is_recording() => self.dictation.toggle(),
             Some("stop") if self.dictation.is_recording() => self.dictation.toggle(),
             Some("start" | "stop") => {}
@@ -173,6 +180,7 @@ impl App {
                 self.paster.can_paste(),
                 self.updater.status.get(),
             )),
+            Some("update") => self.updater.check_now(true),
             Some("quit") => self.quit(),
             Some(other) => {
                 line.printerr_literal(&format!("Unknown command {other}. Run speakty help.\n"));

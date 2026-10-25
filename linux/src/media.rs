@@ -3,44 +3,45 @@
 //! already paused stays paused.
 
 use gtk::gio;
-use gtk::glib::{self, Variant};
-use std::cell::RefCell;
-use std::rc::Rc;
+use gtk::glib::Variant;
 
 const PLAYER: &str = "org.mpris.MediaPlayer2.Player";
 
-#[derive(Default)]
+/// Pause and resume run in order on a thread of their own, since asking every player takes a
+/// moment, so a resume always follows the pause it undoes.
 pub struct MediaPauser {
-    /// The players Speakty paused, to play again.
-    paused: Rc<RefCell<Vec<String>>>,
-    pausing: RefCell<Option<glib::JoinHandle<()>>>,
+    commands: std::sync::mpsc::Sender<bool>,
 }
 
 impl MediaPauser {
-    pub fn pause(&self) {
-        let paused = self.paused.clone();
-        *self.pausing.borrow_mut() = Some(glib::spawn_future_local(async move {
-            let players = gio::spawn_blocking(pause_playing).await.unwrap_or_default();
-            if !players.is_empty() {
-                log::info!("Paused {}", players.join(", "));
+    pub fn new() -> Self {
+        let (commands, received) = std::sync::mpsc::channel::<bool>();
+        std::thread::spawn(move || {
+            // The players Speakty paused, to play again.
+            let mut paused: Vec<String> = Vec::new();
+            for pauses in received {
+                if pauses {
+                    let players = pause_playing();
+                    if !players.is_empty() {
+                        log::info!("Paused {}", players.join(", "));
+                    }
+                    paused.extend(players);
+                } else {
+                    for player in paused.drain(..) {
+                        call(&player, "Play");
+                    }
+                }
             }
-            paused.borrow_mut().extend(players);
-        }));
+        });
+        Self { commands }
     }
 
-    /// Also stops a pause that's still asking what plays.
+    pub fn pause(&self) {
+        let _ = self.commands.send(true);
+    }
+
     pub fn resume(&self) {
-        if let Some(pausing) = self.pausing.borrow_mut().take() {
-            pausing.abort();
-        }
-        let players = std::mem::take(&mut *self.paused.borrow_mut());
-        if !players.is_empty() {
-            gio::spawn_blocking(move || {
-                for player in players {
-                    call(&player, "Play");
-                }
-            });
-        }
+        let _ = self.commands.send(false);
     }
 }
 

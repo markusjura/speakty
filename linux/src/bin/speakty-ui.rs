@@ -13,6 +13,7 @@ const USAGE: &str = "Usage: speakty-ui <command>
   pad <seconds>          Open a text window in front, then print what was typed or pasted into it
   windows                List Speakty's overlay and windows from Hyprland
   clipboard              Print the clipboard's text
+  duration <file.wav>    Print a recording's length in seconds
 Keys are evdev names such as KEY_ESC, or rsuper, lsuper, rctrl, esc.";
 
 fn key(name: &str) -> KeyCode {
@@ -116,6 +117,10 @@ fn main() {
                 }
                 Err(error) => println!("({error})"),
             }
+        }
+        Some("duration") => {
+            let reader = hound::WavReader::open(argument(1)).unwrap_or_else(|e| fail(&e.to_string()));
+            println!("{:.1}", reader.duration() as f64 / reader.spec().sample_rate as f64);
         }
         _ => fail(USAGE),
     }

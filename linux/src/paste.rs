@@ -81,8 +81,10 @@ impl Paster {
 fn insert(state: &Arc<Mutex<State>>, text: String, pressing_return: bool) {
     let mut locked = state.lock().unwrap();
     if locked.keyboard.is_none() {
-        serve(text_contents(&text), false);
-        return log::info!("Copied the transcript; pasting needs write access to /dev/uinput");
+        if serve(text_contents(&text), false).is_some() {
+            log::info!("Copied the transcript; pasting needs write access to /dev/uinput");
+        }
+        return;
     }
     let saved = match locked.pending.take() {
         Some(pending) if pending.is_current.load(Ordering::SeqCst) => pending.saved,
@@ -90,9 +92,10 @@ fn insert(state: &Arc<Mutex<State>>, text: String, pressing_return: bool) {
     };
     locked.generation += 1;
     let generation = locked.generation;
-    let is_current = serve(text_contents(&text), true);
-    // The compositor needs the new selection before the app asks for it.
-    std::thread::sleep(Duration::from_millis(60));
+    // Pasting now would put what the clipboard still holds into the text instead.
+    let Some(is_current) = serve(text_contents(&text), true) else { return };
+    // The selection request is on its way; give the compositor a moment to hand it to the app.
+    std::thread::sleep(Duration::from_millis(30));
     let terminal = crate::focus::focused_class().is_some_and(|class| TERMINALS.contains(&class.to_lowercase().as_str()));
     let keyboard = locked.keyboard.as_mut().unwrap();
     let mut keys = vec![KeyCode::KEY_LEFTCTRL];
@@ -115,6 +118,7 @@ fn insert(state: &Arc<Mutex<State>>, text: String, pressing_return: bool) {
     if !is_ours || !is_current.load(Ordering::SeqCst) {
         return;
     }
+    // Still holding the lock, so a dictation that pastes next reads the restored clipboard.
     let saved = locked.pending.take().unwrap().saved;
     if saved.is_empty() {
         let _ = copy::clear(copy::ClipboardType::Regular, copy::Seat::All);
@@ -144,14 +148,16 @@ fn virtual_keyboard() -> std::io::Result<VirtualDevice> {
     VirtualDevice::builder()?.name(PASTE_KEYBOARD_NAME).with_keys(&keys)?.build()
 }
 
-/// Makes `contents` the clipboard and serves it from a thread until another copy replaces it. The
-/// flag it returns turns false then.
-fn serve(mut contents: Contents, sensitive: bool) -> Arc<AtomicBool> {
+/// Makes `contents` the clipboard and serves it from a thread until another copy replaces it. Returns
+/// once the compositor has the new selection, with a flag that turns false when it's replaced, or
+/// None when the clipboard couldn't be set.
+fn serve(mut contents: Contents, sensitive: bool) -> Option<Arc<AtomicBool>> {
     if sensitive {
         contents.push((SENSITIVE_TYPE.into(), b"secret".to_vec()));
     }
     let is_current = Arc::new(AtomicBool::new(true));
     let flag = is_current.clone();
+    let (ready, prepared) = std::sync::mpsc::sync_channel(1);
     std::thread::spawn(move || {
         let sources = contents
             .into_iter()
@@ -159,12 +165,22 @@ fn serve(mut contents: Contents, sensitive: bool) -> Arc<AtomicBool> {
             .collect();
         let mut options = copy::Options::new();
         options.foreground(true);
-        if let Err(error) = options.copy_multi(sources) {
-            log::error!("Couldn't set the clipboard: {error}");
+        // Preparing sets the selection; serving answers paste requests until it's replaced.
+        match options.prepare_copy_multi(sources) {
+            Ok(copy) => {
+                let _ = ready.send(true);
+                if let Err(error) = copy.serve() {
+                    log::error!("Couldn't serve the clipboard: {error}");
+                }
+            }
+            Err(error) => {
+                log::error!("Couldn't set the clipboard: {error}");
+                let _ = ready.send(false);
+            }
         }
         flag.store(false, Ordering::SeqCst);
     });
-    is_current
+    prepared.recv().unwrap_or(false).then_some(is_current)
 }
 
 /// Every type of the current clipboard with its data. Empty when the clipboard is, or when its

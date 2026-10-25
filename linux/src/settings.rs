@@ -30,6 +30,11 @@ pub enum Pane {
 impl Pane {
     const ALL: [Pane; 6] = [Pane::General, Pane::Recording, Pane::Models, Pane::Transcript, Pane::Shortcuts, Pane::Permissions];
 
+    /// The pane `speakty settings <name>` opens, by its title in lowercase.
+    pub fn named(name: &str) -> Option<Pane> {
+        Pane::ALL.into_iter().find(|pane| pane.title().eq_ignore_ascii_case(name))
+    }
+
     fn title(self) -> &'static str {
         match self {
             Pane::General => "General",
@@ -59,6 +64,8 @@ pub struct Settings {
     sidebar: gtk::ListBox,
     pane: Cell<Pane>,
     app: Weak<App>,
+    /// Ends a shortcut capture in progress without a new shortcut, which resumes the shortcut.
+    end_capture: RefCell<Option<Rc<dyn Fn(Option<Shortcut>)>>>,
 }
 
 impl Settings {
@@ -88,7 +95,20 @@ impl Settings {
         split.set_sidebar(Some(&adw::NavigationPage::new(&sidebar_view, identity::NAME)));
         split.set_min_sidebar_width(190.0);
         window.set_content(Some(&split));
-        let settings = Rc::new(Self { window, split, sidebar, pane: Cell::new(Pane::General), app: Rc::downgrade(app) });
+        let settings = Rc::new(Self {
+            window,
+            split,
+            sidebar,
+            pane: Cell::new(Pane::General),
+            app: Rc::downgrade(app),
+            end_capture: RefCell::default(),
+        });
+        let weak = Rc::downgrade(&settings);
+        settings.window.connect_hide(move |_| {
+            if let Some(settings) = weak.upgrade() {
+                settings.end_capture();
+            }
+        });
         let weak = Rc::downgrade(&settings);
         settings.sidebar.connect_row_activated(move |_, row| {
             if let Some(settings) = weak.upgrade() {
@@ -103,8 +123,16 @@ impl Settings {
         self.window.present();
     }
 
+    fn end_capture(&self) {
+        let end = self.end_capture.borrow_mut().take();
+        if let Some(end) = end {
+            end(None);
+        }
+    }
+
     fn show(self: &Rc<Self>, pane: Pane) {
         let Some(app) = self.app.upgrade() else { return };
+        self.end_capture();
         self.pane.set(pane);
         if let Some(row) = self.sidebar.row_at_index(Pane::ALL.iter().position(|p| *p == pane).unwrap() as i32) {
             self.sidebar.select_row(Some(&row));
@@ -115,7 +143,7 @@ impl Settings {
             Pane::Recording => recording(&page, &app),
             Pane::Models => models(&page, &app),
             Pane::Transcript => transcript(&page, &app, self),
-            Pane::Shortcuts => shortcuts(&page, &app, &self.window),
+            Pane::Shortcuts => shortcuts(&page, &app, self),
             Pane::Permissions => permissions(&page, &app),
         }
         let view = adw::ToolbarView::new();
@@ -196,8 +224,9 @@ fn general(page: &adw::PreferencesPage, app: &Rc<App>) {
     let running = updater.is_running();
     switch(&updates, app, "Check automatically", preferences.general.checks_for_updates, |p, on| p.general.checks_for_updates = on)
         .set_sensitive(running);
-    switch(&updates, app, "Install automatically", preferences.general.installs_updates, |p, on| p.general.installs_updates = on)
-        .set_subtitle("Relaunches into an update when no dictation runs and the keyboard rests");
+    let install = switch(&updates, app, "Install automatically", preferences.general.installs_updates, |p, on| p.general.installs_updates = on);
+    install.set_subtitle("Relaunches into an update when no dictation runs and the keyboard rests");
+    install.set_sensitive(running);
     let version = adw::ActionRow::builder().title(format!("{} {}", identity::NAME, identity::VERSION)).build();
     let button = gtk::Button::builder().valign(gtk::Align::Center).build();
     version.add_suffix(&button);
@@ -226,7 +255,7 @@ fn general(page: &adw::PreferencesPage, app: &Rc<App>) {
     updater.status.watch(refresh);
     button.connect_clicked(move |_| match updater.status.get() {
         Status::Available(_) | Status::Ready(_) => updater.install_available(),
-        _ => updater.check_now(),
+        _ => updater.check_now(false),
     });
 }
 
@@ -409,11 +438,11 @@ fn remove_button() -> gtk::Button {
     button
 }
 
-fn shortcuts(page: &adw::PreferencesPage, app: &Rc<App>, window: &adw::ApplicationWindow) {
+fn shortcuts(page: &adw::PreferencesPage, app: &Rc<App>, settings: &Rc<Settings>) {
     let recording = app.preferences.get().recording;
     let dictation = group(page, "Dictation", Some("Wayland lets no app take a key from the others, so the shortcut also reaches the app in front. A modifier key on its own, such as Right Super, does nothing there."));
     let row = adw::ActionRow::builder().title("Shortcut").build();
-    row.add_suffix(&shortcut_button(app, window, Command::Dictate));
+    row.add_suffix(&shortcut_button(app, settings, Command::Dictate));
     dictation.add(&row);
     let modes = [ShortcutMode::HoldOrTap, ShortcutMode::Hold, ShortcutMode::Tap];
     let selected = modes.iter().position(|m| *m == recording.shortcut_mode).unwrap_or(0);
@@ -422,7 +451,7 @@ fn shortcuts(page: &adw::PreferencesPage, app: &Rc<App>, window: &adw::Applicati
 
     let during = group(page, "While dictating", None);
     let cancel = adw::ActionRow::builder().title("Cancel").subtitle("Discards the dictation").build();
-    cancel.add_suffix(&shortcut_button(app, window, Command::Cancel));
+    cancel.add_suffix(&shortcut_button(app, settings, Command::Cancel));
     let clear = remove_button();
     clear.set_tooltip_text(Some("Turn off"));
     let clear_app = app.clone();
@@ -447,14 +476,15 @@ fn shortcut_title(app: &App, command: Command) -> String {
 
 /// A button that shows a shortcut and records a new one when clicked: the next key with its
 /// modifiers, or a modifier key pressed and released on its own. Esc stops recording the dictation shortcut.
-fn shortcut_button(app: &Rc<App>, window: &adw::ApplicationWindow, command: Command) -> gtk::Button {
+fn shortcut_button(app: &Rc<App>, settings: &Rc<Settings>, command: Command) -> gtk::Button {
     let button = gtk::Button::builder().label(shortcut_title(app, command)).valign(gtk::Align::Center).build();
     let controller: Rc<RefCell<Option<gtk::EventControllerKey>>> = Rc::default();
-    let (app, window) = (app.clone(), window.clone());
+    let (app, window, settings) = (app.clone(), settings.window.clone(), Rc::downgrade(settings));
     button.connect_clicked(move |button| {
         if controller.borrow().is_some() {
             return;
         }
+        let Some(settings) = settings.upgrade() else { return };
         button.set_label("Press a shortcut…");
         app.recording_shortcut.set(true);
         app.sync_watch();
@@ -462,8 +492,12 @@ fn shortcut_button(app: &Rc<App>, window: &adw::ApplicationWindow, command: Comm
         keys.set_propagation_phase(gtk::PropagationPhase::Capture);
         let pending_modifier: Rc<Cell<Option<KeyCode>>> = Rc::default();
         let finish = {
-            let (app, button, window, controller) = (app.clone(), button.clone(), window.clone(), controller.clone());
+            let (app, button, window, controller, owner) =
+                (app.clone(), button.clone(), window.clone(), controller.clone(), Rc::downgrade(&settings));
             Rc::new(move |shortcut: Option<Shortcut>| {
+                if let Some(settings) = owner.upgrade() {
+                    settings.end_capture.borrow_mut().take();
+                }
                 if let Some(shortcut) = shortcut {
                     set(&app, |p| match command {
                         Command::Dictate if shortcut.works_globally() => {
@@ -515,6 +549,7 @@ fn shortcut_button(app: &Rc<App>, window: &adw::ApplicationWindow, command: Comm
         });
         window.add_controller(keys.clone());
         *controller.borrow_mut() = Some(keys);
+        *settings.end_capture.borrow_mut() = Some(finish);
     });
     button
 }

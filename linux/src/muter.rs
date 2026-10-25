@@ -5,43 +5,57 @@
 use crate::identity;
 use std::process::Command;
 
-pub struct OutputMuter;
+/// Mute and restore run in order on a thread of their own, as wpctl takes a moment, so a restore
+/// always follows the mute it undoes.
+pub struct OutputMuter {
+    commands: std::sync::mpsc::Sender<bool>,
+}
 
 impl OutputMuter {
     pub fn new() -> Self {
-        let muter = Self;
-        muter.restore();
-        muter
-    }
-
-    fn record() -> std::path::PathBuf {
-        identity::state_dir().join("muted-output")
+        let (commands, received) = std::sync::mpsc::channel::<bool>();
+        std::thread::spawn(move || {
+            restore();
+            for mutes in received {
+                if mutes { mute() } else { restore() }
+            }
+        });
+        Self { commands }
     }
 
     pub fn mute(&self) {
-        if Self::record().exists() {
-            return;
-        }
-        std::thread::spawn(|| {
-            let Some(node) = default_sink() else { return };
-            let muted = wpctl(&["get-volume", &node]).is_some_and(|volume| volume.contains("[MUTED]"));
-            if muted {
-                return;
-            }
-            let _ = std::fs::create_dir_all(identity::state_dir());
-            if std::fs::write(Self::record(), &node).is_ok() && wpctl(&["set-mute", &node, "1"]).is_none() {
-                let _ = std::fs::remove_file(Self::record());
-            }
-        });
+        let _ = self.commands.send(true);
     }
 
-    /// Keeps the record when unmuting fails, so the next stop or launch tries again.
     pub fn restore(&self) {
-        let Ok(node) = std::fs::read_to_string(Self::record()) else { return };
-        // A node that's gone meanwhile has nothing left to unmute.
-        if wpctl(&["set-mute", node.trim(), "0"]).is_some() || wpctl(&["inspect", node.trim()]).is_none() {
-            let _ = std::fs::remove_file(Self::record());
-        }
+        let _ = self.commands.send(false);
+    }
+}
+
+fn record() -> std::path::PathBuf {
+    identity::state_dir().join("muted-output")
+}
+
+fn mute() {
+    if record().exists() {
+        return;
+    }
+    let Some(node) = default_sink() else { return };
+    if wpctl(&["get-volume", &node]).is_some_and(|volume| volume.contains("[MUTED]")) {
+        return;
+    }
+    let _ = std::fs::create_dir_all(identity::state_dir());
+    if std::fs::write(record(), &node).is_ok() && wpctl(&["set-mute", &node, "1"]).is_none() {
+        let _ = std::fs::remove_file(record());
+    }
+}
+
+/// Keeps the record when unmuting fails, so the next stop or launch tries again.
+fn restore() {
+    let Ok(node) = std::fs::read_to_string(record()) else { return };
+    // A node that's gone meanwhile has nothing left to unmute.
+    if wpctl(&["set-mute", node.trim(), "0"]).is_some() || wpctl(&["inspect", node.trim()]).is_none() {
+        let _ = std::fs::remove_file(record());
     }
 }
 

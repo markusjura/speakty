@@ -150,6 +150,7 @@ pub struct Debug {
     /// A WAV file replayed in real time instead of the microphone, so checks run without speaking.
     pub test_audio_file: Option<String>,
     /// An update manifest to check instead of GitHub, as a URL or a path. Speakty Dev updates only from it.
+    #[serde(rename = "updateFeedURL")]
     pub update_feed_url: Option<String>,
 }
 

@@ -5,13 +5,14 @@ const USAGE: &str = "Usage: speakty [command]
 Without a command, starts Speakty, or opens Settings when it already runs.
 
 Commands for the running Speakty:
-  settings   Open Settings
-  start      Start dictating
-  stop       Stop and paste
-  toggle     Start, or stop and paste
-  cancel     Discard the dictation
-  status     Print what Speakty is doing
-  quit       Quit Speakty
+  settings [pane]  Open Settings, on a pane such as transcript
+  start            Start dictating
+  stop             Stop and paste
+  toggle           Start, or stop and paste
+  cancel           Discard the dictation
+  status           Print what Speakty is doing
+  update           Check for an update, and install it at once
+  quit             Quit Speakty
 
 Commands that run on their own:
   install              Install this binary for the current user and restart the service

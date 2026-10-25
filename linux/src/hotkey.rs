@@ -6,7 +6,7 @@
 //! in later. Remappers such as kanata or keyd grab the physical keyboard and type through a virtual
 //! one, which is read like any other.
 
-use crate::shortcut::{Modifiers, Shortcut, is_modifier};
+use crate::shortcut::{Modifiers, Shortcut};
 use evdev::{Device, EventSummary, KeyCode};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -166,34 +166,33 @@ impl HotkeyMonitor {
         }
         let is_down = value == 1;
         let watch = state.watch;
+        log::debug!("{key:?} {} with {:?}, {:?}", if is_down { "down" } else { "up" }, state.modifiers, watch);
         let mut events = Vec::new();
         if watch.paused {
             state.modifiers.set(key, is_down);
             return events;
         }
-        if key == watch.shortcut.key {
-            if is_down && !state.held && state.modifiers == watch.shortcut.modifiers {
-                state.held = true;
-                events.push(Event::Pressed);
-            } else if !is_down && state.held {
-                state.held = false;
-                events.push(Event::Released);
-            }
+        let is_shortcut = key == watch.shortcut.key
+            && ((is_down && !state.held && state.modifiers == watch.shortcut.modifiers) || (!is_down && state.held));
+        if is_shortcut {
+            state.held = is_down;
             state.modifiers.set(key, is_down);
+            events.push(if is_down { Event::Pressed } else { Event::Released });
             return events;
         }
-        if state.modifiers.set(key, is_down) || !is_down || is_modifier(key) {
+        let before = state.modifiers;
+        let is_modifier_key = state.modifiers.set(key, is_down);
+        if !is_down {
             return events;
         }
         // Cancel acts on the dictation, so unlike other keys it doesn't interrupt a held shortcut. It
-        // matches with or without the held shortcut's modifiers.
+        // matches with or without the held shortcut's modifiers, and may be a modifier key itself.
         let is_cancel = watch.cancel.is_some_and(|cancel| {
-            cancel.key == key
-                && (state.modifiers == cancel.modifiers || state.modifiers == cancel.modifiers.union(&watch.shortcut.held_modifiers()))
+            cancel.key == key && (before == cancel.modifiers || before == cancel.modifiers.union(&watch.shortcut.held_modifiers()))
         });
         if watch.dictating && is_cancel {
             events.push(Event::Cancel);
-        } else if state.held {
+        } else if state.held && !is_modifier_key {
             state.held = false;
             events.push(Event::Interrupted);
         }
@@ -248,6 +247,16 @@ mod tests {
         monitor.state.lock().unwrap().watch.dictating = true;
         monitor.handle(KeyCode::KEY_RIGHTMETA, 1);
         assert_eq!(monitor.handle(KeyCode::KEY_ESC, 1), [Event::Cancel], "Also with the shortcut held");
+    }
+
+    #[test]
+    fn a_modifier_key_can_cancel() {
+        let monitor = monitor(Shortcut::default());
+        let mut state = monitor.state.lock().unwrap();
+        state.watch.cancel = Some(Shortcut::key(KeyCode::KEY_RIGHTCTRL));
+        state.watch.dictating = true;
+        drop(state);
+        assert_eq!(monitor.handle(KeyCode::KEY_RIGHTCTRL, 1), [Event::Cancel]);
     }
 
     #[test]

@@ -92,7 +92,7 @@ impl DictationController {
             transcriber,
             paster,
             muter: OutputMuter::new(),
-            media: MediaPauser::default(),
+            media: MediaPauser::new(),
             work: RefCell::default(),
             recordings: Cell::new(0),
         })
@@ -133,7 +133,11 @@ impl DictationController {
         self.phase.set(Phase::Recording(trigger));
         let this = self.clone();
         glib::spawn_future_local(async move {
-            let result = started.recv().await.unwrap_or_else(|_| Err("PipeWire isn't running".into()));
+            // PipeWire answers within a second; without an answer it isn't running.
+            let result = glib::future_with_timeout(Duration::from_secs(5), started.recv())
+                .await
+                .map_err(|_| "The microphone didn't start".to_string())
+                .and_then(|answer| answer.unwrap_or_else(|_| Err("PipeWire isn't running".into())));
             if recording == this.recordings.get() {
                 this.microphone_started(result);
             }

@@ -105,17 +105,18 @@ impl Updater {
         }
         let due = self.last_checked.get().is_none_or(|last| last.elapsed().unwrap_or(CHECK_INTERVAL) >= CHECK_INTERVAL);
         if due && self.preferences.get().general.checks_for_updates {
-            self.check(false);
+            self.check(false, false);
         }
     }
 
-    /// Checks now, as a scheduled check does, but reports a failure.
-    pub fn check_now(self: &Rc<Self>) {
+    /// Checks now, as a scheduled check does, but reports a failure. With `relaunch`, as from
+    /// `speakty update`, a newer version installs and relaunches at once.
+    pub fn check_now(self: &Rc<Self>, relaunch: bool) {
         self.status.set(Status::Checking);
-        self.check(true);
+        self.check(true, relaunch);
     }
 
-    fn check(self: &Rc<Self>, manually: bool) {
+    fn check(self: &Rc<Self>, manually: bool, relaunch: bool) {
         if self.checking.replace(true) {
             return;
         }
@@ -128,9 +129,12 @@ impl Updater {
             this.last_checked.set(Some(now));
             write_last_checked(now);
             match found {
-                Ok(Some(manifest)) if installs => this.download(manifest, false).await,
+                Ok(Some(manifest)) if installs || relaunch => this.download(manifest, relaunch).await,
                 Ok(Some(manifest)) => this.status.set(Status::Available(manifest)),
-                Ok(None) => this.status.set(Status::Idle),
+                Ok(None) => {
+                    log::info!("Speakty {} is current", identity::VERSION);
+                    this.status.set(Status::Idle);
+                }
                 Err(error) => {
                     log::info!("Update check failed: {error}");
                     this.status.set(if manually { Status::Failed(error) } else { Status::Idle });
@@ -229,7 +233,7 @@ fn newest(feed: Option<&str>) -> Result<Option<Manifest>, String> {
     Ok(is_newer(&manifest.version, identity::VERSION).then_some(manifest))
 }
 
-/// Whether `version` comes after `current`. Builds between releases, such as 0.1.0-dev.abc1234,
+/// Whether `version` comes after `current`. Builds between releases, such as 0.1.0-dev.gabc1234,
 /// come before their release.
 pub fn is_newer(version: &str, current: &str) -> bool {
     match (semver::Version::parse(version), semver::Version::parse(current)) {
@@ -262,7 +266,9 @@ fn fetch_and_stage(manifest: &Manifest) -> Result<(), String> {
     let mut entries = tar::Archive::new(flate2::read::GzDecoder::new(archive.as_slice()));
     for entry in entries.entries().map_err(|e| e.to_string())? {
         let mut entry = entry.map_err(|e| e.to_string())?;
-        if entry.path().is_ok_and(|p| p.file_name().is_some_and(|n| n == "speakty")) {
+        // The archive also holds the speakty/ folder, whose name matches too.
+        let is_binary = entry.header().entry_type().is_file() && entry.path().is_ok_and(|p| p == std::path::Path::new("speakty/speakty"));
+        if is_binary {
             let mut binary = Vec::new();
             entry.read_to_end(&mut binary).map_err(|e| e.to_string())?;
             return install::stage(&manifest.version, &binary).map_err(|e| e.to_string());
@@ -289,7 +295,7 @@ mod tests {
 
     #[test]
     fn builds_between_releases_sort_before_them() {
-        assert!(is_newer("0.1.0", "0.1.0-dev.abc1234"));
+        assert!(is_newer("0.1.0", "0.1.0-dev.gabc1234"));
         assert!(is_newer("0.2.0", "0.1.9"));
         assert!(!is_newer("0.1.0", "0.1.0"));
         assert!(!is_newer("garbage", "0.1.0"));
