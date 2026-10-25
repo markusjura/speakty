@@ -23,6 +23,7 @@ cleanup() {
 trap cleanup EXIT
 [[ $voxtype == active ]] && systemctl --user stop voxtype.service
 
+mkdir -p "$(dirname "$settings")"
 [[ -f $settings ]] || echo '{}' > "$settings"
 jq --arg file "$recording" '.debug.testAudioFile = $file' "$settings" > "$settings.new" && mv "$settings.new" "$settings"
 hyprctl dispatch "hl.dsp.focus({ workspace = 9 })" >/dev/null

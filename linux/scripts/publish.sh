@@ -12,6 +12,7 @@ fail() { print -u2 "$1"; exit 1 }
 [[ $# -eq 1 ]] || fail "Usage: linux/scripts/publish.sh <version>"
 version=$1 tag="linux-v$1" host=${SPEAKTY_LINUX_HOST:-linux}
 [[ -n "$(git ls-remote --tags origin "refs/tags/$tag")" ]] || fail "Tag $tag is not on origin."
+linux/scripts/sign.sh --check || fail "The login keychain has no Sparkle key matching the updater's."
 git fetch --quiet --tags origin
 
 # Build from the tag in a worktree of its own, so the archive is exactly the tagged source.

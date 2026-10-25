@@ -40,8 +40,9 @@ if [[ "$next" != "$current" ]]; then
   git commit --quiet -m "chore: release Linux $next" $manifest linux/Cargo.lock
 fi
 git tag "linux-v$next"
-git push --quiet --atomic origin HEAD:main "linux-v$next" ||
-  fail "Push failed. Undo the local release with: git tag -d linux-v$next && git reset --keep HEAD~1"
+undo="git tag -d linux-v$next"
+[[ "$next" != "$current" ]] && undo+=" && git reset --keep HEAD~1"
+git push --quiet --atomic origin HEAD:main "linux-v$next" || fail "Push failed. Undo the local release with: $undo"
 
 trap 'print -u2 "Pushed linux-v$next, but a step failed. Fix it, then run: linux/scripts/publish.sh $next"' ERR
 linux/scripts/publish.sh "$next"

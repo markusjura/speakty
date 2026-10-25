@@ -13,7 +13,7 @@
 use crate::hotkey::PASTE_KEYBOARD_NAME;
 use evdev::uinput::VirtualDevice;
 use evdev::{AttributeSet, EventType, InputEvent, KeyCode};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use wl_clipboard_rs::{copy, paste};
@@ -21,6 +21,8 @@ use wl_clipboard_rs::{copy, paste};
 const SENSITIVE_TYPE: &str = "x-kde-passwordManagerHint";
 /// Targets X11 apps offer through Xwayland that describe the selection rather than hold it.
 const META_TYPES: &[&str] = &["TARGETS", "MULTIPLE", "SAVE_TARGETS", "TIMESTAMP", "DELETE", SENSITIVE_TYPE];
+/// Speakty's own marker types, which a restore leaves out.
+const MARKER_PREFIX: &str = "application/x-speakty-copy-";
 /// Window classes of terminals, which paste with Ctrl+Shift+V. Compared in lowercase.
 const TERMINALS: &[&str] = &[
     "kitty", "alacritty", "foot", "footclient", "org.wezfurlong.wezterm", "com.mitchellh.ghostty", "ghostty",
@@ -94,8 +96,6 @@ fn insert(state: &Arc<Mutex<State>>, text: String, pressing_return: bool) {
     let generation = locked.generation;
     // Pasting now would put what the clipboard still holds into the text instead.
     let Some(is_current) = serve(text_contents(&text), true) else { return };
-    // The selection request is on its way; give the compositor a moment to hand it to the app.
-    std::thread::sleep(Duration::from_millis(30));
     let terminal = crate::focus::focused_class().is_some_and(|class| TERMINALS.contains(&class.to_lowercase().as_str()));
     let keyboard = locked.keyboard.as_mut().unwrap();
     let mut keys = vec![KeyCode::KEY_LEFTCTRL];
@@ -149,15 +149,18 @@ fn virtual_keyboard() -> std::io::Result<VirtualDevice> {
 }
 
 /// Makes `contents` the clipboard and serves it from a thread until another copy replaces it. Returns
-/// once the compositor has the new selection, with a flag that turns false when it's replaced, or
-/// None when the clipboard couldn't be set.
+/// once the clipboard shows it, with a flag that turns false when it's replaced, or None when it
+/// couldn't be set within half a second.
 fn serve(mut contents: Contents, sensitive: bool) -> Option<Arc<AtomicBool>> {
+    // A type no one else offers, which tells when the compositor has published this copy.
+    static COPIES: AtomicU64 = AtomicU64::new(0);
+    let marker = format!("application/x-speakty-copy-{}-{}", std::process::id(), COPIES.fetch_add(1, Ordering::SeqCst));
+    contents.push((marker.clone(), Vec::new()));
     if sensitive {
         contents.push((SENSITIVE_TYPE.into(), b"secret".to_vec()));
     }
     let is_current = Arc::new(AtomicBool::new(true));
     let flag = is_current.clone();
-    let (ready, prepared) = std::sync::mpsc::sync_channel(1);
     std::thread::spawn(move || {
         let sources = contents
             .into_iter()
@@ -165,22 +168,23 @@ fn serve(mut contents: Contents, sensitive: bool) -> Option<Arc<AtomicBool>> {
             .collect();
         let mut options = copy::Options::new();
         options.foreground(true);
-        // Preparing sets the selection; serving answers paste requests until it's replaced.
-        match options.prepare_copy_multi(sources) {
-            Ok(copy) => {
-                let _ = ready.send(true);
-                if let Err(error) = copy.serve() {
-                    log::error!("Couldn't serve the clipboard: {error}");
-                }
-            }
-            Err(error) => {
-                log::error!("Couldn't set the clipboard: {error}");
-                let _ = ready.send(false);
-            }
+        if let Err(error) = options.copy_multi(sources) {
+            log::error!("Couldn't set the clipboard: {error}");
         }
         flag.store(false, Ordering::SeqCst);
     });
-    prepared.recv().unwrap_or(false).then_some(is_current)
+    for _ in 0..50 {
+        let types = paste::get_mime_types(paste::ClipboardType::Regular, paste::Seat::Unspecified);
+        if types.is_ok_and(|types| types.contains(&marker)) {
+            return Some(is_current);
+        }
+        if !is_current.load(Ordering::SeqCst) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    log::error!("The clipboard didn't take the copy");
+    None
 }
 
 /// Every type of the current clipboard with its data. Empty when the clipboard is, or when its
@@ -191,7 +195,7 @@ fn read_clipboard() -> Contents {
         let contents = (|| -> Result<Contents, paste::Error> {
             let types = paste::get_mime_types(paste::ClipboardType::Regular, paste::Seat::Unspecified)?;
             let mut contents = Vec::new();
-            for mime in types.into_iter().filter(|t| !META_TYPES.contains(&t.as_str())) {
+            for mime in types.into_iter().filter(|t| !META_TYPES.contains(&t.as_str()) && !t.starts_with(MARKER_PREFIX)) {
                 let (mut pipe, _) = paste::get_contents(paste::ClipboardType::Regular, paste::Seat::Unspecified, paste::MimeType::Specific(&mime))?;
                 let mut bytes = Vec::new();
                 if std::io::Read::read_to_end(&mut pipe, &mut bytes).is_ok() {

@@ -485,6 +485,8 @@ fn shortcut_button(app: &Rc<App>, settings: &Rc<Settings>, command: Command) -> 
             return;
         }
         let Some(settings) = settings.upgrade() else { return };
+        // One capture at a time: another button's ends without a shortcut.
+        settings.end_capture();
         button.set_label("Press a shortcut…");
         app.recording_shortcut.set(true);
         app.sync_watch();
