@@ -12,6 +12,8 @@ import ApplicationServices
 //                                           rcmd, lcmd, ropt, lopt, rctrl, rshift, fn, or a key code with mods
 //   speakty-ui press <keycode> [mods]       one key press, such as `press 53` for Escape
 //   speakty-ui clipboard                    the clipboard's text
+//   speakty-ui pad <seconds>                opens a text window in front, waits until a paste into it
+//                                           settles or the seconds pass, and prints its text
 
 /// Speakty Dev when it runs, else the installed Speakty. Only one of them runs at a time.
 let bundleID = ["local.markus.Speakty.dev", "local.markus.Speakty"]
@@ -107,6 +109,45 @@ func menu(choosing item: String?) {
     }
 }
 
+/// Opens a text window in front, so a dictation pastes into it instead of another app. Prints its
+/// text once a paste settles, or fails when nothing arrives within `seconds`.
+@MainActor func pad(seconds: Double) -> Never {
+    let app = NSApplication.shared
+    app.setActivationPolicy(.regular)
+    app.finishLaunching()
+    // ⌘V reaches the text view only as the key equivalent of a Paste menu item.
+    let edit = NSMenu()
+    edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+    app.mainMenu = NSMenu()
+    app.mainMenu?.addItem(withTitle: "", action: nil, keyEquivalent: "").submenu = NSMenu()
+    app.mainMenu?.addItem(withTitle: "Edit", action: nil, keyEquivalent: "").submenu = edit
+    let scroll = NSTextView.scrollableTextView()
+    guard let field = scroll.documentView as? NSTextView else { fail("no text view") }
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 320), styleMask: [.titled], backing: .buffered, defer: false)
+    window.title = "speakty-ui pad"
+    window.contentView = scroll
+    window.center()
+    window.makeKeyAndOrderFront(nil)
+    window.makeFirstResponder(field)
+
+    let deadline = Date(timeIntervalSinceNow: seconds)
+    var text = "", changed = Date()
+    while Date() < deadline {
+        while let event = app.nextEvent(matching: .any, until: Date(timeIntervalSinceNow: 0.1), inMode: .default, dequeue: true) {
+            app.sendEvent(event)
+        }
+        // macOS ignores activate() from a background tool, but brings it forward through
+        // Accessibility once the app has handled its launch events. Keeps it in front until it exits.
+        if !app.isActive {
+            AXUIElementSetAttributeValue(AXUIElementCreateApplication(getpid()), kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+        }
+        if field.string != text { text = field.string; changed = Date() }
+        // A paste is ⌘V and maybe Return, a moment apart, so wait for the text to stay put.
+        if !text.isEmpty && Date().timeIntervalSince(changed) > 1.5 { print(text); exit(0) }
+    }
+    fail(text.isEmpty ? "nothing was pasted in \(seconds) s" : text)
+}
+
 switch args.first {
 case "windows": windows()
 case "menu": menu(choosing: args.count > 1 ? args[1] : nil)
@@ -129,7 +170,10 @@ case "press":
     post(code, down: true, flags: flags)
     post(code, down: false, flags: flags)
 case "clipboard": print(NSPasteboard.general.string(forType: .string) ?? "")
+case "pad":
+    guard args.count > 1, let seconds = Double(args[1]) else { fail("usage: pad <seconds>") }
+    MainActor.assumeIsolated { pad(seconds: seconds) }
 default:
-    print("Usage: speakty-ui windows | menu [item] | hold <key> <seconds> [mods] | press <keycode> [mods] | clipboard")
+    print("Usage: speakty-ui windows | menu [item] | hold <key> <seconds> [mods] | press <keycode> [mods] | clipboard | pad <seconds>")
     exit(1)
 }
