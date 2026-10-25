@@ -16,6 +16,7 @@ fail() { print -u2 "$1"; exit 1 }
 version="$1" tag="v$1"
 dmg="macos/.build/releases/Speakty-$version.dmg"
 zip="macos/.build/releases/Speakty-$version.zip"
+# sparkle.sh runs from macos/, so paths it gets are absolute.
 sparkle=macos/Scripts/sparkle.sh
 
 for file in $dmg $zip; do
@@ -83,7 +84,7 @@ cat > "$appcast" <<XML
       <sparkle:shortVersionString>$version</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>$(info LSMinimumSystemVersion)</sparkle:minimumSystemVersion>
       ${items:+<description><![CDATA[<ul>$items</ul>]]></description>}
-      <enclosure url="$download/${zip:t}" type="application/octet-stream" $($sparkle sign_update "$zip") />
+      <enclosure url="$download/${zip:t}" type="application/octet-stream" $($sparkle sign_update "${zip:A}") />
     </item>
   </channel>
 </rss>
