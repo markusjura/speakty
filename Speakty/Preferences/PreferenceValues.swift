@@ -37,11 +37,16 @@ struct RecordingPreferences: Codable, Equatable, Sendable {
     var shortcut = Shortcut.default
     var style = OverlayStyle.minimal
     var position = OverlayPosition.bottom
+    /// Points between the display and the edge of the screen it sits at, below the menu bar at the
+    /// top and above the Dock at the bottom.
+    var edgeDistance = 24.0
     /// The Core Audio UID of the chosen microphone; nil follows the system default input.
     var microphoneUID: String?
     var mutesAudio = true
 
-    var isValid: Bool { true }
+    static let edgeDistanceRange = 0.0...120.0
+
+    var isValid: Bool { Self.edgeDistanceRange.contains(edgeDistance) }
 }
 
 struct TranscriptPreferences: Codable, Equatable, Sendable {

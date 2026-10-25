@@ -54,7 +54,7 @@ No LLM rewriting and no cleanup model. Parakeet already writes punctuation and c
 ## Recording display and menu bar
 
 - The display shows two states only: listening, which follows the voice level, and transcribing, which keeps moving without it. No record dot, and no pasted, no-speech, download, or error states; a beep covers the rare failure, and Settings shows model downloads.
-- Three styles, chosen in Settings > Recording with live previews: Minimal (level bars in Shotty's dark capsule, the default), Glass (a scrolling waveform in a Liquid Glass capsule), and Orb (a gradient ring that breathes with the voice and turns while transcribing). Position is bottom or top of the screen with the pointer.
+- Three styles, chosen in Settings > Recording with live previews: Minimal (level bars in Shotty's dark capsule, the default), Glass (a scrolling waveform in a Liquid Glass capsule), and Orb (a gradient ring that breathes with the voice and turns while transcribing). Position is bottom or top of the screen with the pointer, with a distance from that edge (0 to 120 pt, 24 by default).
 - It's a borderless, non-activating, click-through `NSPanel` on every Space, so focus stays in the app being typed in. Its animation clock stops while it's hidden.
 - The menu bar icon is the `waveform` symbol and never changes with the dictation state; a blue dot marks an update that needs the user. The menu holds Start or Stop Dictation, Settings, and Quit.
 

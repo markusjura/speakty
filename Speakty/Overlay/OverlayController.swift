@@ -47,11 +47,20 @@ final class OverlayController {
     private func show() {
         let screen = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) } ?? NSScreen.main
         guard let area = screen?.visibleFrame else { return }
-        let size = OverlayPanel.size
-        let y = model.position == .bottom ? area.minY + 8 : area.maxY - size.height
-        panel.setFrame(NSRect(x: area.midX - size.width / 2, y: y, width: size.width, height: size.height), display: false)
+        panel.setFrame(Self.panelFrame(in: area, recording: preferences.recording), display: false)
         panel.alphaValue = 1
         panel.orderFrontRegardless()
+    }
+
+    /// The panel's frame, centered horizontally in a screen's visible area and the edge distance
+    /// away from its bottom or top.
+    static func panelFrame(in area: NSRect, recording: RecordingPreferences) -> NSRect {
+        let size = OverlayPanel.size
+        let y = switch recording.position {
+        case .bottom: area.minY + recording.edgeDistance
+        case .top: area.maxY - size.height - recording.edgeDistance
+        }
+        return NSRect(x: area.midX - size.width / 2, y: y, width: size.width, height: size.height)
     }
 
     private func hide() {
