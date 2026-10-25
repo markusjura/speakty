@@ -134,7 +134,10 @@ extension View {
     }
 }
 
-private struct SettingsTextField: ViewModifier {
+struct SettingsTextField: ViewModifier {
+    /// Where the text starts inside the border, for plain text that lines up with a field's.
+    static let textInset: CGFloat = 8
+
     @FocusState private var isFocused: Bool
 
     func body(content: Content) -> some View {
@@ -142,7 +145,7 @@ private struct SettingsTextField: ViewModifier {
         content
             .textFieldStyle(.plain)
             .focused($isFocused)
-            .padding(.horizontal, 8)
+            .padding(.horizontal, Self.textInset)
             .frame(height: 28)
             .background(SettingsColor.canvas, in: shape)
             .overlay(shape.strokeBorder(isFocused ? Color.accentColor : SettingsColor.fieldBorder, lineWidth: isFocused ? 2 : 1))

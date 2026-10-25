@@ -90,7 +90,7 @@ private struct VocabularySection: View {
                         .onSubmit(commitEdit)
                         .onExitCommand { editing = nil }
                 }
-                Color.clear.frame(width: WordChip.removeSize)
+                Color.clear.frame(width: RemoveButton.size)
             }
             .chipPadding()
             .background(SettingsColor.canvas, in: Capsule())
@@ -138,23 +138,13 @@ private struct WordChip: View {
     let highlight: String
     let edit: () -> Void
     let remove: () -> Void
-    @State private var isHoveringRemove = false
 
     static let spacing: CGFloat = 3
-    static let removeSize: CGFloat = 16
 
     var body: some View {
         HStack(spacing: Self.spacing) {
             Text(highlighted).lineLimit(1)
-            Button("Remove \(word)", systemImage: "xmark", action: remove)
-                .labelStyle(.iconOnly)
-                .buttonStyle(.plain)
-                .font(.system(size: 8, weight: .bold))
-                .foregroundStyle(isHoveringRemove ? SettingsColor.primaryText : SettingsColor.secondaryText)
-                .frame(width: Self.removeSize, height: Self.removeSize)
-                .background(SettingsColor.primaryText.opacity(isHoveringRemove ? 0.12 : 0), in: Circle())
-                .contentShape(Circle())
-                .onHover { isHoveringRemove = $0 }
+            RemoveButton(title: "Remove \(word)", action: remove)
         }
         .chipPadding()
         .background(SettingsColor.controlFill, in: Capsule())
@@ -176,7 +166,36 @@ private struct WordChip: View {
     }
 }
 
+/// A small × that fills its circle under the pointer, removing a vocabulary word or a replacement.
+private struct RemoveButton: View {
+    let title: String
+    let action: () -> Void
+    @State private var isHovering = false
+
+    static let size: CGFloat = 16
+
+    var body: some View {
+        Button(title, systemImage: "xmark", action: action)
+            .labelStyle(.iconOnly)
+            .buttonStyle(.plain)
+            .font(.system(size: 8, weight: .bold))
+            .foregroundStyle(isHovering ? SettingsColor.primaryText : SettingsColor.secondaryText)
+            .frame(width: Self.size, height: Self.size)
+            .background(SettingsColor.primaryText.opacity(isHovering ? 0.12 : 0), in: Circle())
+            .contentShape(Circle())
+            .onHover { isHovering = $0 }
+    }
+}
+
 private extension View {
+    /// Centers the view in the space `placeholder` takes, so a column keeps one width whatever it shows.
+    func sized(like placeholder: some View) -> some View {
+        ZStack {
+            placeholder.hidden().accessibilityHidden(true)
+            self
+        }
+    }
+
     /// A word chip's insets: the trailing one is smaller, since the remove button's circle has its own room.
     func chipPadding() -> some View {
         padding(.leading, 10).padding(.trailing, 4).frame(height: 24)
@@ -218,86 +237,185 @@ private struct FlowLayout: Layout {
 
 // MARK: Replacements
 
-/// The rules in order, each removable, with one form below to add a rule or change the one clicked.
+/// The rules in order, then a form that adds one. A click on a rule edits it in place, as a click on a
+/// vocabulary word does: Return, a click on another rule, or a click into the add form keeps the change,
+/// Escape drops it, and an emptied Find removes the rule.
 private struct ReplacementsSection: View {
     @Binding var replacements: [Replacement]
-    @State private var draft = Replacement(find: "", replacement: "")
+    @State private var new = Replacement(find: "", replacement: "")
+    /// The rule being edited, and its unsaved changes. Not an optional rule, since a binding unwrapped
+    /// from one crashes when the edit ends.
     @State private var editing: Replacement.ID?
+    @State private var draft = Replacement(find: "", replacement: "")
+    @FocusState private var focus: Field?
+
+    private enum Field: Hashable { case newFind, newReplacement, editFind, editReplacement }
 
     var body: some View {
         Section("Replacements") {
             ForEach(replacements) { rule in
-                ReplacementRow(rule: rule, isEditing: rule.id == editing) {
-                    draft = rule
-                    editing = rule.id
-                } remove: {
-                    replacements.removeAll { $0.id == rule.id }
-                    if editing == rule.id { reset() }
+                if rule.id == editing {
+                    form($draft, find: .editFind, replacement: .editReplacement) {
+                        RemoveButton(title: "Remove") { remove(rule) }
+                    }
+                    .onSubmit(submitEdit)
+                    .onExitCommand { editing = nil }
+                } else {
+                    ReplacementRow(rule: rule) {
+                        commitEdit()
+                        draft = rule
+                        editing = rule.id
+                        focus = .editFind
+                    } remove: {
+                        remove(rule)
+                    }
                 }
             }
-            HStack(spacing: 8) {
-                TextField("Find", text: $draft.find).settingsTextField()
-                Image(systemName: "arrow.right").foregroundStyle(SettingsColor.secondaryText)
-                TextField("Replace with", text: $draft.replacement).settingsTextField()
-                Toggle(".*", isOn: $draft.isPattern)
-                    .toggleStyle(.button)
-                    .font(.system(.callout, design: .monospaced))
-                    .help("Regular expression: use $1 for its groups")
-                if editing != nil { Button("Cancel", action: reset) }
-                Button(editing == nil ? "Add" : "Save", action: save)
-                    .disabled(!draft.isValid)
+            form($new, find: .newFind, replacement: .newReplacement) {
+                Button("Add", action: add).disabled(!new.isValid)
             }
-            .onSubmit(save)
-            .onExitCommand(perform: reset)
-            .padding(.vertical, 8)
-            .settingsRowWarning(draft.isPattern && !draft.find.isEmpty && !draft.isValid ? "Not a valid regular expression." : nil)
+            .onSubmit(add)
+            .onExitCommand { new = Replacement(find: "", replacement: "") }
+        }
+        // Focus also goes to nil on a click of the .* switch, which shouldn't end the edit.
+        .onChange(of: focus) { if let focus, focus != .editFind, focus != .editReplacement { commitEdit() } }
+    }
+
+    /// The find and replace fields and the regular expression switch, for adding a rule or editing one.
+    private func form(_ rule: Binding<Replacement>, find: Field, replacement: Field,
+                      @ViewBuilder action: () -> some View) -> some View {
+        ReplacementColumns {
+            TextField("Find", text: rule.find)
+                .settingsTextField()
+                .focused($focus, equals: find)
+        } replacement: {
+            TextField("Replace with", text: rule.replacement)
+                .settingsTextField()
+                .focused($focus, equals: replacement)
+        } pattern: {
+            PatternToggle(isOn: rule.isPattern)
+        } action: {
+            action()
+        }
+        .settingsRowWarning(rule.wrappedValue.isPattern && !rule.wrappedValue.find.isEmpty && !rule.wrappedValue.isValid
+            ? "Not a valid regular expression." : nil)
+    }
+
+    private func add() {
+        guard new.isValid else { return }
+        replacements.append(new)
+        new = Replacement(find: "", replacement: "")
+        focus = .newFind
+    }
+
+    private func remove(_ rule: Replacement) {
+        if editing == rule.id { editing = nil }
+        replacements.removeAll { $0.id == rule.id }
+    }
+
+    /// Return keeps editing an invalid pattern, so it can be fixed.
+    private func submitEdit() {
+        guard draft.find.isEmpty || draft.isValid else { return }
+        commitEdit()
+    }
+
+    /// Ends editing. An emptied Find removes the rule, and an invalid pattern leaves the original.
+    private func commitEdit() {
+        guard let id = editing else { return }
+        editing = nil
+        guard let index = replacements.firstIndex(where: { $0.id == id }) else { return }
+        if draft.find.isEmpty {
+            replacements.remove(at: index)
+        } else if draft.isValid {
+            replacements[index] = draft
         }
     }
+}
 
-    private func save() {
-        guard draft.isValid else { return }
-        if let index = replacements.firstIndex(where: { $0.id == editing }) { replacements[index] = draft } else { replacements.append(draft) }
-        reset()
+/// The columns every replacement row shares, whether it shows a rule, edits one, or adds one, so find,
+/// arrow, replacement, the .* switch, and the trailing button line up from row to row. The trailing
+/// columns keep the width of the switch and the Add button even in rows that show something smaller.
+private struct ReplacementColumns<Find: View, Replacement: View, Pattern: View, Action: View>: View {
+    @ViewBuilder let find: Find
+    @ViewBuilder let replacement: Replacement
+    @ViewBuilder let pattern: Pattern
+    @ViewBuilder let action: Action
+
+    var body: some View {
+        HStack(spacing: 8) {
+            find.frame(maxWidth: .infinity, alignment: .leading)
+            Image(systemName: "arrow.right").foregroundStyle(SettingsColor.secondaryText)
+            replacement.frame(maxWidth: .infinity, alignment: .leading)
+            pattern.sized(like: PatternToggle(isOn: .constant(false)))
+            action.sized(like: Button("Add") {})
+        }
+        // A text field's height, so a rule keeps its place when a click opens it.
+        .frame(minHeight: 28)
+        .padding(.vertical, 8)
     }
+}
 
-    private func reset() {
-        draft = Replacement(find: "", replacement: "")
-        editing = nil
+/// Switches a rule between plain text and a regular expression. The settings button style has no on
+/// state, so the accent fill shows it.
+private struct PatternToggle: View {
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Toggle(".*", isOn: $isOn)
+            .toggleStyle(.button)
+            .buttonStyle(SettingsButtonStyle(isProminent: isOn))
+            .font(.system(.callout, design: .monospaced))
+            .help(isOn
+                ? "Regular expression. Use $1 in the replacement for the first group."
+                : "Plain text, matching whole words and ignoring case. Click for a regular expression.")
     }
 }
 
 private struct ReplacementRow: View {
     let rule: Replacement
-    let isEditing: Bool
     let edit: () -> Void
     let remove: () -> Void
     @State private var isHovering = false
+    /// Where the pointer was last seen over the row, in window coordinates.
+    @State private var pointer: CGPoint?
 
     var body: some View {
-        HStack(spacing: 8) {
-            text(rule.find).frame(maxWidth: .infinity, alignment: .leading)
-            Image(systemName: "arrow.right").foregroundStyle(SettingsColor.secondaryText)
-            text(rule.replacement).frame(maxWidth: .infinity, alignment: .leading)
-            Button("Remove", systemImage: "xmark", action: remove)
-                .labelStyle(.iconOnly)
-                .buttonStyle(.plain)
-                .foregroundStyle(SettingsColor.secondaryText)
-                .opacity(isHovering ? 1 : 0)
+        ReplacementColumns {
+            text(rule.find)
+        } replacement: {
+            text(rule.replacement)
+        } pattern: {
+            if rule.isPattern {
+                Text(".*").font(.system(.callout, design: .monospaced)).foregroundStyle(SettingsColor.secondaryText)
+                    .help("Regular expression")
+            }
+        } action: {
+            RemoveButton(title: "Remove", action: remove).opacity(isHovering ? 1 : 0)
         }
-        .foregroundStyle(isEditing ? Color.accentColor : SettingsColor.primaryText)
         .contentShape(Rectangle())
         .onTapGesture(perform: edit)
-        .onHover { isHovering = $0 }
+        // The remove button shows once the pointer moves over the row. A rule added with Return appears
+        // under the pointer, which macOS hides while typing, and plain hover would show its button there.
+        .onContinuousHover(coordinateSpace: .global) { phase in
+            switch phase {
+            case .active(let location):
+                if let pointer, pointer != location { isHovering = true }
+                pointer = location
+            case .ended:
+                isHovering = false
+                pointer = nil
+            }
+        }
         .accessibilityElement(children: .combine)
         .accessibilityAction(named: "Edit", edit)
         .accessibilityAction(named: "Remove", remove)
     }
 
-    /// Patterns in monospace, so their symbols read clearly.
+    /// Inset like a text field's text, so a rule's text stays put when a click opens it for editing.
     private func text(_ value: String) -> some View {
         Text(value.isEmpty ? "Nothing" : value)
-            .font(rule.isPattern ? .system(.body, design: .monospaced) : .body)
             .lineLimit(1)
             .truncationMode(.middle)
+            .padding(.horizontal, SettingsTextField.textInset)
     }
 }
