@@ -128,6 +128,8 @@ final class Transcriber {
         var decoder = TdtDecoderState.make()
         let result = try await manager.transcribe(samples, decoderState: &decoder)
         logger.info("Transcribed \(result.duration, format: .fixed(precision: 1)) s in \(result.processingTime, format: .fixed(precision: 2)) s")
+        // FluidAudio 0.17.7 has no `hasCTCRescoringCandidates` preflight yet; use it to skip the CTC
+        // pass once an upgrade adds it.
         guard let boosting, let timings = result.tokenTimings,
               let rescored = await boosting.rescore(text: result.text, tokenTimings: timings, audioSamples: samples) else {
             return result.text
