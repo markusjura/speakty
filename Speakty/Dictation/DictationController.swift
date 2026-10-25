@@ -16,9 +16,8 @@ final class DictationController {
 
     /// How the shortcut ends a recording.
     enum Trigger: Equatable {
-        /// Held since the key went down, in seconds since startup; the release ends it, unless that
-        /// makes it a tap.
-        case held(since: TimeInterval)
+        /// Held since the instant; the release ends it, unless that makes it a tap.
+        case held(since: ContinuousClock.Instant)
         /// Started by a tap or the menu; the next press of the shortcut ends it.
         case latched
         /// Pressed again to end it. The release ends it, and typing a shortcut such as ⌘C instead
@@ -40,7 +39,7 @@ final class DictationController {
     @ObservationIgnored private let logger = Logger(subsystem: "local.markus.Speakty", category: "Dictation")
 
     /// A release sooner than this after the press is a tap, which keeps recording until the next one.
-    private static let longestTap: TimeInterval = 0.25
+    private static let longestTap = Duration.milliseconds(250)
     /// Recording continues briefly after release, so a word finished while letting go isn't cut.
     private static let releaseTail = Duration.milliseconds(200)
 
@@ -60,7 +59,7 @@ final class DictationController {
     var canStart: Bool { phase == .idle && transcriber.state == .ready }
 
     func handle(_ event: HotkeyMonitor.Event) {
-        switch Self.action(for: event, in: phase) {
+        switch Self.action(for: event, in: phase, at: .now) {
         case .start(let trigger): start(trigger)
         case .become(let trigger): phase = .recording(trigger)
         case .stop: stop()
@@ -77,14 +76,12 @@ final class DictationController {
         case stop, cancel, ignore
     }
 
-    /// The hold-or-tap rules: a hold records until its release, and a tap until the next tap. A tap
-    /// is measured between the key's own event times, so a busy moment on the main thread can't turn
-    /// it into a short hold.
-    static func action(for event: HotkeyMonitor.Event, in phase: Phase) -> Action {
+    /// The hold-or-tap rules: a hold records until its release, and a tap until the next tap.
+    static func action(for event: HotkeyMonitor.Event, in phase: Phase, at now: ContinuousClock.Instant) -> Action {
         switch (event, phase) {
-        case (.pressed(let time), .idle): .start(.held(since: time))
+        case (.pressed, .idle): .start(.held(since: now))
         case (.pressed, .recording(.latched)): .become(.ending)
-        case (.released(let time), .recording(.held(let since))): time - since < longestTap ? .become(.latched) : .stop
+        case (.released, .recording(.held(let since))): since.duration(to: now) < longestTap ? .become(.latched) : .stop
         case (.released, .recording(.ending)): .stop
         case (.interrupted, .recording(.held)), (.interrupted, .recording(.ending)): .cancel
         case (.escape, .recording), (.escape, .transcribing): .cancel
@@ -137,7 +134,8 @@ final class DictationController {
                 }
             }
         case .failure(let error):
-            guard phase != .idle else { return }
+            // Unless Escape ended the recording meanwhile.
+            guard isRecording else { return }
             NSSound.beep()
             logger.error("Recording didn't start: \(error.localizedDescription, privacy: .public)")
             cancel()
