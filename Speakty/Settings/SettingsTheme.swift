@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Settings colors, taken from Raycast's settings window. Each token has a light and a dark value.
+/// Settings colors. Each token has a light and a dark value.
 enum SettingsColor {
     static let canvas = dynamic(light: 0xFFFFFF, dark: 0x141515)
     static let section = dynamic(light: 0xF9F9F9, dark: 0x1A1B1B)
@@ -10,14 +10,14 @@ enum SettingsColor {
     /// The selected sidebar row, and its dimmer fill while the window is inactive.
     static let sidebarSelection = dynamic(light: 0xDADADA, dark: 0x333433)
     static let inactiveSidebarSelection = dynamic(light: 0xEBEBEB, dark: 0x272928)
-    /// Fill of buttons such as Choose… and the shortcut recorder, as Raycast's settings buttons.
+    /// Fill of buttons such as Choose… and the shortcut recorder.
     static let controlFill = dynamic(light: 0xE0E0E0, dark: 0x323333)
-    /// The thin border of text fields at rest and of the hovered shortcut recorder, as Raycast's.
+    /// The thin border of text fields at rest and of the hovered shortcut recorder.
     static let fieldBorder = dynamic(light: 0xC7C7C7, dark: 0x474747)
     static let primaryText = dynamic(light: 0x000000, dark: 0xFFFFFF)
     static let secondaryText = dynamic(light: 0x646464, dark: 0xA4A4A4)
     /// Success and granted states, such as an allowed permission's checkmark: deep green on light and
-    /// mint on dark, after Raycast's passed checks. Both keep at least 3:1 against `section` for icons.
+    /// mint on dark. Both keep at least 3:1 against `section` for icons.
     static let success = dynamic(light: 0x248A3D, dark: 0x90D7AD)
     /// The line under the toolbar while it is hovered or the window is inactive: the system
     /// separator in light mode, and the window's inactive outer border over the canvas in dark mode.
@@ -50,8 +50,7 @@ private extension NSColor {
     }
 }
 
-/// The grouped settings layout of macOS System Settings, drawn by Speakty so it can use
-/// `SettingsColor`. The native grouped form fills sections with a fixed translucent system color
+/// A grouped settings layout of sections, drawn by Speakty so it can use `SettingsColor`. The native grouped form fills sections with a fixed translucent system color
 /// that no public modifier changes. Panes keep writing plain `Form`, `Section`, and controls.
 struct SettingsFormStyle: FormStyle {
     func makeBody(configuration: Configuration) -> some View {
@@ -59,7 +58,7 @@ struct SettingsFormStyle: FormStyle {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(sections: configuration.content) { section in
                     if !section.header.isEmpty {
-                        // Semibold, as System Settings' section headers; `.headline` is bold.
+                        // Semibold section headers; `.headline` alone is bold.
                         section.header
                             .font(.headline.weight(.semibold))
                             .padding(.horizontal, 10)
@@ -77,8 +76,8 @@ struct SettingsFormStyle: FormStyle {
                     }
                     .padding(.vertical, 0.5)
                     .background(SettingsColor.section, in: RoundedRectangle(cornerRadius: 12))
-                    // Footers sit under the section, aligned with its rows, as in System Settings,
-                    // and describe the whole section in the note style.
+                    // Footers sit under the section, aligned with its rows, and describe the whole
+                    // section in the note style.
                     if !section.footer.isEmpty {
                         section.footer
                             .font(.callout)
@@ -101,14 +100,14 @@ struct SettingsFormStyle: FormStyle {
         .labeledContentStyle(SettingsLabeledContentStyle())
         .labelStyle(SettingsLabelStyle())
         .horizontalRadioGroupLayout()
-        // Buttons are flat fills, like Raycast's settings buttons. Menu pickers and menus set
-        // `.buttonStyle(.borderless)` themselves, which shows them as text and chevrons, like
-        // Raycast's dropdowns; a custom button style doesn't reach their pop-up buttons.
+        // Buttons are flat fills. Menu pickers and menus set `.buttonStyle(.borderless)`
+        // themselves, which shows them as text and chevrons; a custom button style doesn't reach
+        // their pop-up buttons.
         .buttonStyle(SettingsButtonStyle())
     }
 }
 
-/// A flat button in `SettingsColor.controlFill`, as Raycast's settings buttons. The prominent
+/// A flat button in `SettingsColor.controlFill`. The prominent
 /// variant fills with the accent color, for the one action a row asks the user to take.
 struct SettingsButtonStyle: ButtonStyle {
     var isProminent = false
@@ -283,7 +282,7 @@ private struct NotedRowLayout: Layout {
     }
 }
 
-/// A Settings sidebar row as in Raycast's settings: an accent icon and primary text, with a gray
+/// A Settings sidebar row: an accent icon and primary text, with a gray
 /// fill when selected, and the blue update dot at the trailing edge when asked. The List keeps its
 /// own selection, so clicks, arrow keys, and VoiceOver work as usual; only the system highlight is
 /// turned off, by `HidesSelectionHighlight`.

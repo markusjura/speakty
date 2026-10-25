@@ -4,8 +4,8 @@ import ImageIO
 import UniformTypeIdentifiers
 
 // Generates Speakty's macOS app icon: white waveform bars, like the menu bar's `waveform` symbol, on
-// the system-blue rounded square Shotty and Spotty use. Every size is drawn directly at its pixel
-// dimensions, so small sizes stay crisp and the output is deterministic.
+// a system-blue rounded square. Every size is drawn directly at its pixel dimensions, so small sizes
+// stay crisp and the output is deterministic.
 // Run: swift Scripts/GenerateAppIcon.swift Speakty/Assets.xcassets
 
 let assets = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? "Speakty/Assets.xcassets", isDirectory: true)
@@ -51,7 +51,7 @@ func drawIcon(in context: CGContext, scale: CGFloat) {
     context.drawLinearGradient(gradient, start: CGPoint(x: 512, y: body.maxY), end: CGPoint(x: 512, y: body.minY), options: [])
     context.restoreGState()
 
-    // Seven rounded bars, tallest in the middle, filling the same 452-point square as Shotty's glyph.
+    // Seven rounded bars, tallest in the middle, filling a 452-point square.
     let heights: [CGFloat] = [120, 236, 360, 452, 300, 196, 104]
     let width: CGFloat = 44, gap: CGFloat = 24
     let total = CGFloat(heights.count) * width + CGFloat(heights.count - 1) * gap

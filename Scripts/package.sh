@@ -21,7 +21,7 @@ git fetch --quiet origin main
 Scripts/xcode.sh release build
 app=.build/Build/Products/Release/Speakty.app
 
-# Xcode never updates the bundle folder's own date, and launchers like Raycast keep a cached
+# Xcode never updates the bundle folder's own date, and app launchers keep a cached
 # icon until that date changes. Touching the folder leaves the signature intact.
 touch "$app"
 

@@ -25,7 +25,7 @@ struct OverlayView: View {
     }
 }
 
-/// Level bars in Shotty's dark island capsule.
+/// Level bars in the dark island capsule.
 private struct MinimalOverlay: View {
     let isTranscribing: Bool
     let level: Float

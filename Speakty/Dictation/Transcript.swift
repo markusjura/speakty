@@ -51,8 +51,8 @@ enum Transcript {
     }
 
     /// Swaps each recognized phrase for the vocabulary term that replaced it. FluidAudio's rescored
-    /// text drops the punctuation after a replaced phrase, as in "Shoddy, Spotty" becoming
-    /// "Shotty Spotty"; this keeps it. FluidAudio replaces a phrase where it was spoken, not where it
+    /// text drops the punctuation after a replaced phrase, as in "speak to, please" becoming
+    /// "Speakty please"; this keeps it. FluidAudio replaces a phrase where it was spoken, not where it
     /// appears in the text, so this is nil, and FluidAudio's text is used, unless every occurrence of a
     /// phrase was replaced by the same term.
     static func correcting(_ text: String, _ corrections: [(phrase: String, term: String)]) -> String? {

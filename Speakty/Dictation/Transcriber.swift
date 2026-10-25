@@ -104,10 +104,10 @@ final class Transcriber {
         boostingTask = Task {
             defer { if !Task.isCancelled { boostingTask = nil } }
             do {
-                // Dictation vocabularies are short names that sound like ordinary words. MacParakeet found
-                // a similarity floor of 0.65 keeps ordinary words from turning into terms, and FluidAudio
-                // recommends turning off its acoustic rescue for them, which otherwise replaced
-                // "pastes the text" with "Spotty" here.
+                // Dictation vocabularies are short names that sound like ordinary words. A similarity
+                // floor of 0.65 keeps ordinary words from turning into terms, and FluidAudio recommends
+                // turning off its acoustic rescue for them, which otherwise replaced whole ordinary
+                // phrases, such as "pastes the text", with a term.
                 let context = CustomVocabularyContext(terms: terms.map { CustomVocabularyTerm(text: $0) }, minSimilarity: 0.65)
                 let session = try await VocabularyBoostingSession(vocabulary: context, ctcModels: models.value,
                                                                   config: .init(spotterRescueEnabled: false))

@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// Design tokens for Speakty's floating chrome, the recording display. It sits over whatever the
-/// user is typing in, so the dark styles keep Shotty's fixed dark island colors in both appearances.
+/// user is typing in, so the dark styles keep fixed dark island colors in both appearances.
 /// Settings draws its own colors, in SettingsTheme.
 @MainActor
 enum Chrome {
@@ -10,7 +10,7 @@ enum Chrome {
     /// the menu bar, and other apps' floating panels.
     static let overlayLevel = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.cursorWindow)) - 2)
 
-    /// Shotty's recording bar capsule.
+    /// The dark island capsule behind the recording display.
     static let islandFill = Color(white: 0.12, opacity: 0.9)
     static let islandRim = Color(white: 1, opacity: 0.16)
     static let islandLabel = Color(white: 0.96)

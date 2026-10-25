@@ -14,7 +14,7 @@ set -euo pipefail
 
 bundle_id=local.markus.Speakty
 installed=/Applications/Speakty.app
-# Spotlight skips .noindex folders, so launchers like Raycast never list the kept build and its old icon.
+# Spotlight skips .noindex folders, so app launchers never list the kept build and its old icon.
 keep_dir="$HOME/Library/Application Support/Speakty Installer.noindex"
 previous="$keep_dir/Speakty.previous.app"
 

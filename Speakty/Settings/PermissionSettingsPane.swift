@@ -28,7 +28,7 @@ struct PermissionSettingsPane: View {
         }
     }
 
-    /// A status row with an outlined green checkmark when granted, as in Raycast's settings, or a gray cross.
+    /// A status row with an outlined green checkmark when granted, or a gray cross.
     /// Both glyphs are outlined circles of one size, so the row keeps its alignment when the status changes.
     private func status(_ ok: Bool, missing: String) -> some View {
         LabeledContent("Status") {

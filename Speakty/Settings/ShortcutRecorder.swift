@@ -2,10 +2,10 @@ import AppKit
 import Carbon.HIToolbox
 import SwiftUI
 
-/// Records the dictation shortcut, drawn like Raycast's hotkey recorder: plain text at rest, a thin
-/// border on hover, and a thick accent border while recording. Click, Space, or Return starts
-/// recording; Escape cancels. It takes a modifier key pressed and let go on its own, such as
-/// Right ⌘, or a key with modifiers. The dictation shortcut pauses meanwhile, so it can be re-recorded.
+/// Records the dictation shortcut. It draws plain text at rest, a thin border on hover, and a thick
+/// accent border while recording. Click, Space, or Return starts recording; Escape cancels. It takes
+/// a modifier key pressed and let go on its own, such as Right ⌘, or a key with modifiers. The
+/// dictation shortcut pauses meanwhile, so it can be re-recorded.
 struct ShortcutRecorder: NSViewRepresentable {
     @Binding var shortcut: Shortcut
     let hotkeys: HotkeyMonitor
@@ -33,7 +33,6 @@ final class ShortcutRecorderButton: NSButton {
     private var pressedKeys: Set<ModifierKey> = []
     private var isHovering = false { didSet { needsDisplay = true } }
 
-    // Raycast's hotkey recorder colors, except the recording border.
     private static let valueColor = NSColor.settings(light: 0x000000, dark: 0xFFFFFF)
     private static let placeholderColor = NSColor.settings(light: 0x959595, dark: 0x757575)
     private static let hoverBorder = NSColor(SettingsColor.fieldBorder)
@@ -64,7 +63,7 @@ final class ShortcutRecorderButton: NSButton {
     override func draw(_ dirtyRect: NSRect) {
         let path = NSBezierPath(roundedRect: box, xRadius: 5, yRadius: 5)
         if isRecording {
-            // Centered on the box edge, so it reaches 1 pt outside, as in Raycast.
+            // Centered on the box edge, so it reaches 1 pt outside.
             NSColor.controlAccentColor.setStroke(); path.lineWidth = 2; path.stroke()
         } else if isHovering {
             let inner = NSBezierPath(roundedRect: box.insetBy(dx: 0.5, dy: 0.5), xRadius: 4.5, yRadius: 4.5)

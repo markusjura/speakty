@@ -12,7 +12,7 @@ struct SpeaktyApp: App {
                 .onAppear { delegate.settingsIsOpen = true }
                 .onDisappear { delegate.settingsIsOpen = false }
         }
-        // System Settings' toolbar height and control size.
+        // The unified style gives the taller toolbar and its larger controls.
         .windowToolbarStyle(.unified)
         .defaultSize(width: 660, height: 608)
         .windowResizability(.contentMinSize)

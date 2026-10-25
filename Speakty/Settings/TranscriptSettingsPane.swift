@@ -38,7 +38,7 @@ private struct VocabularySection: View {
                     .onSubmit { add(query) }
                     .onExitCommand { query = "" }
                 if canAdd {
-                    // The Return key that adds, as a keycap, as Raycast and Spotlight hint their actions.
+                    // The Return key that adds, as a keycap hint.
                     Button("Add", systemImage: "return") { add(query) }
                         .labelStyle(.iconOnly)
                         .buttonStyle(.plain)
@@ -129,8 +129,8 @@ private struct VocabularySection: View {
     }
 }
 
-/// A word as a token with its remove button always shown, as in Mail's address tokens and search
-/// fields, so the chip keeps one shape whether or not the pointer is over it.
+/// A word as a token with its remove button always shown, so the chip keeps one shape whether or
+/// not the pointer is over it.
 private struct WordChip: View {
     let word: String
     let highlight: String
