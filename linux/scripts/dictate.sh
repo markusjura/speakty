@@ -3,8 +3,7 @@
 # Linux machine in the graphical session, which linux/scripts/remote.sh provides from the Mac.
 # Usage: scripts/dictate.sh <recording.wav> [terminal]
 #   With `terminal`, the text lands in a kitty window instead, which pastes with Ctrl+Shift+V.
-# The check runs on workspace 9 and switches back afterwards, and it stops Voxtype meanwhile, which
-# reacts to the same key. Speakty Dev must run: scripts/run.sh dev.
+# The check runs on workspace 9 and switches back afterwards. Speakty Dev must run: scripts/run.sh dev.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -13,15 +12,12 @@ settings=~/.config/speakty-dev/settings.json
 cargo build --quiet --bin speakty-ui
 seconds=$(awk -v d="$(target/debug/speakty-ui duration "$recording")" 'BEGIN { print d + 1.5 }')
 output=$(mktemp)
-voxtype=$(systemctl --user is-active voxtype.service 2>/dev/null || true)
 workspace=$(hyprctl activeworkspace -j | jq .id)
 cleanup() {
   hyprctl dispatch "hl.dsp.focus({ workspace = $workspace })" >/dev/null
-  [[ $voxtype == active ]] && systemctl --user start voxtype.service
   rm -f "$output"
 }
 trap cleanup EXIT
-[[ $voxtype == active ]] && systemctl --user stop voxtype.service
 
 mkdir -p "$(dirname "$settings")"
 [[ -f $settings ]] || echo '{}' > "$settings"

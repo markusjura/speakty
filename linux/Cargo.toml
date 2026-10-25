@@ -1,7 +1,7 @@
 [package]
 name = "speakty"
-# The Linux app's version, the only one we maintain. linux/scripts/release.sh bumps it.
-version = "0.1.0"
+# Unused: Speakty's version is MARKETING_VERSION in ../Version.xcconfig, which build.rs reads.
+version = "0.0.0"
 edition = "2024"
 publish = false
 

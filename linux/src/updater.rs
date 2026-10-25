@@ -1,8 +1,8 @@
 //! Keeps Speakty current without alerts it didn't ask for, as Sparkle does on macOS.
 //!
-//! Releases are GitHub releases tagged linux-v<version>, each with a speakty-linux.json manifest that
-//! names the archive and its EdDSA signature. The signature comes from Sparkle's key, so the macOS
-//! and Linux apps trust the same publisher. With automatic install on, the default, a newer version
+//! Each GitHub release v<version> carries both apps. The Linux updater reads speakty-linux.json from
+//! the latest release, as Sparkle reads appcast.xml: a manifest that names the archive and its EdDSA
+//! signature. The signature comes from Sparkle's key, so the macOS and Linux apps trust the same publisher. With automatic install on, the default, a newer version
 //! downloads in the background and Speakty relaunches into it once that interrupts nothing: no
 //! dictation runs and no key was pressed for `QUIET_PERIOD`. With it off, Settings shows the update.
 
@@ -20,9 +20,7 @@ use std::time::{Duration, SystemTime};
 
 /// Sparkle's public key, SUPublicEDKey in macos/Config/Info.plist.
 const PUBLIC_KEY: &str = "zfNAovkUOEVGX+Fw//AkIqkZFZBY4hOVS2btsUX9KuA=";
-const RELEASES_URL: &str = "https://api.github.com/repos/markusjura/speakty/releases?per_page=30";
-const TAG_PREFIX: &str = "linux-v";
-const MANIFEST_NAME: &str = "speakty-linux.json";
+const MANIFEST_URL: &str = "https://github.com/markusjura/speakty/releases/latest/download/speakty-linux.json";
 const CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 /// How long the keyboards have to be quiet before Speakty relaunches into an update.
 const QUIET_PERIOD: Duration = Duration::from_secs(10 * 60);
@@ -202,39 +200,14 @@ fn write_last_checked(time: SystemTime) {
     let _ = std::fs::write(last_checked_path(), seconds.to_string());
 }
 
-/// The newest release's manifest when it's newer than this build.
+/// The latest release's manifest when it's newer than this build.
 fn newest(feed: Option<&str>) -> Result<Option<Manifest>, String> {
-    let manifest = match feed {
-        Some(feed) => serde_json::from_slice::<Manifest>(&get(feed)?).map_err(|e| e.to_string())?,
-        None => {
-            #[derive(Deserialize)]
-            struct Asset {
-                name: String,
-                browser_download_url: String,
-            }
-            #[derive(Deserialize)]
-            struct Release {
-                tag_name: String,
-                draft: bool,
-                prerelease: bool,
-                assets: Vec<Asset>,
-            }
-            let releases: Vec<Release> = serde_json::from_slice(&get(RELEASES_URL)?).map_err(|e| e.to_string())?;
-            let newest = releases
-                .into_iter()
-                .filter(|r| !r.draft && !r.prerelease)
-                .filter_map(|r| Some((semver::Version::parse(r.tag_name.strip_prefix(TAG_PREFIX)?).ok()?, r)))
-                .max_by(|a, b| a.0.cmp(&b.0));
-            let Some((_, release)) = newest else { return Ok(None) };
-            let asset = release.assets.iter().find(|a| a.name == MANIFEST_NAME).ok_or("The release has no manifest")?;
-            serde_json::from_slice(&get(&asset.browser_download_url)?).map_err(|e| e.to_string())?
-        }
-    };
+    let manifest: Manifest = serde_json::from_slice(&get(feed.unwrap_or(MANIFEST_URL))?).map_err(|e| e.to_string())?;
     Ok(is_newer(&manifest.version, identity::VERSION).then_some(manifest))
 }
 
-/// Whether `version` comes after `current`. Builds between releases, such as 0.1.0-dev.gabc1234,
-/// come before their release.
+/// Whether `version` comes after `current`. A build between releases, such as 0.2.0+dev.gabc1234,
+/// comes after the release it's based on and before the next.
 pub fn is_newer(version: &str, current: &str) -> bool {
     match (semver::Version::parse(version), semver::Version::parse(current)) {
         (Ok(version), Ok(current)) => version > current,
@@ -249,7 +222,6 @@ fn get(location: &str) -> Result<Vec<u8>, String> {
     }
     let response = ureq::get(location)
         .header("User-Agent", "Speakty")
-        .header("Accept", "application/vnd.github+json, application/json, */*")
         .call()
         .map_err(|e| e.to_string())?;
     let mut bytes = Vec::new();
@@ -294,8 +266,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builds_between_releases_sort_before_them() {
-        assert!(is_newer("0.1.0", "0.1.0-dev.gabc1234"));
+    fn builds_between_releases_sort_after_their_release() {
+        assert!(!is_newer("0.2.0", "0.2.0+dev.gabc1234"));
+        assert!(is_newer("0.2.1", "0.2.0+dev.gabc1234"));
+        assert!(is_newer("0.2.0", "0.1.0-dev.gabc1234"));
         assert!(is_newer("0.2.0", "0.1.9"));
         assert!(!is_newer("0.1.0", "0.1.0"));
         assert!(!is_newer("garbage", "0.1.0"));

@@ -25,7 +25,7 @@ Speakty for Linux needs a Wayland compositor with the data-control protocol, suc
    echo 'KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"' | sudo tee /etc/udev/rules.d/70-speakty-uinput.rules
    sudo udevadm control --reload && sudo udevadm trigger /dev/uinput
    ```
-2. Download `speakty-linux-<version>-x86_64.tar.gz` from the newest `linux-v` release on the [releases page](https://github.com/markusjura/speakty/releases).
+2. Download `speakty-linux-<version>-x86_64.tar.gz` from the [latest release](https://github.com/markusjura/speakty/releases/latest).
 3. Run `tar xzf speakty-linux-*.tar.gz && speakty/speakty install`.
 
 The installer puts Speakty in `~/.local/share/speakty`, without root, links `~/.local/bin/speakty` to it, and starts it as the `speakty.service` user unit with the graphical session. Open Settings from your app launcher or with `speakty settings`. It downloads the dictation model (about 670 MB) on first launch, and later versions install themselves. `speakty install --rollback` goes back to the previous version. Members of the `input` group can read every keystroke, so grant it only on a computer you trust.
@@ -57,7 +57,7 @@ The Debug build is Speakty Dev, bundle ID `local.markus.Speakty.dev`. It has its
 
 ## Package, install, and roll back on macOS
 
-`macos/Scripts/release.sh [patch|minor|major|X.Y.Z]` bumps `MARKETING_VERSION` in `macos/Config/Version.xcconfig`, patch by default, commits `chore: release <version>`, and pushes it to `main` with tag `v<version>`. It then packages, installs, and launches the release with the scripts below and publishes it on GitHub. `CURRENT_PROJECT_VERSION` equals `MARKETING_VERSION`, so the version alone identifies a release.
+Releases cover both apps under one version, `MARKETING_VERSION` in `Version.xcconfig` at the repository root. `scripts/release.sh [patch|minor|major|X.Y.Z]` runs on the Mac. It bumps the version, patch by default, commits `chore: release <version>`, and pushes it to `main` with tag `v<version>`. The tag starts the Linux build in GitHub Actions. The script then packages, installs, and launches the macOS app with the scripts below and publishes the release with `scripts/publish.sh`. `CURRENT_PROJECT_VERSION` equals `MARKETING_VERSION`, so the version alone identifies a release.
 
 `macos/Scripts/package.sh` refuses to run unless the working tree is clean and `HEAD` is `origin/main`, so each version names one pushed commit. It builds Release, refuses to continue unless `codesign --verify --deep --strict` passes and the bundle ID is `local.markus.Speakty`, and writes to `macos/.build/releases/`:
 
@@ -66,7 +66,7 @@ The Debug build is Speakty Dev, bundle ID `local.markus.Speakty.dev`. It has its
 - A `.sha256` checksum beside each.
 - A `.txt` record of the signing authority, team, designated requirement, and entitlements.
 
-`macos/Scripts/publish.sh <version>` creates or updates the GitHub release for tag `v<version>` with the DMG and its checksum, plus the signed ZIP and `appcast.xml` that installed copies update from through Sparkle. The notes list the commits since the previous tag, without chores, followed by the Install on macOS section of this README.
+`scripts/publish.sh <version>` waits for the Linux build of tag `v<version>` and downloads its archive. It signs the macOS ZIP and the Linux archive with Sparkle's key from the login keychain, then creates or updates the GitHub release `v<version>`, marked latest. The release holds the DMG and its checksum, the signed ZIP and `appcast.xml` that macOS copies update from through Sparkle, and the Linux archive, its checksum, and `speakty-linux.json`, the manifest Linux copies update from. Both updaters read the latest release. The notes list the commits since the previous tag, without chores, followed by the README's Install sections.
 
 To install on the same Mac, run `macos/Scripts/install.sh macos/.build/releases/Speakty-<version>.zip`. It refuses a version older than the installed one and asks a running Speakty to quit first, like its Quit menu item.
 
@@ -89,10 +89,10 @@ Keeping the bundle ID and signing identity stable keeps the grants across update
 ```sh
 linux/scripts/test.sh          # unit tests and the shared transcript cases
 linux/scripts/run.sh dev       # build and run Speakty Dev as the speakty-dev user unit
-linux/scripts/package.sh       # build target/releases/speakty-linux-<version>-x86_64.tar.gz
+linux/scripts/package.sh       # build linux/target/releases/speakty-linux-<version>-x86_64.tar.gz
 linux/scripts/install.sh <archive>
 ```
 
 Debug builds are Speakty Dev, app ID `local.markus.Speakty.dev`, with their own settings in `~/.config/speakty-dev`. They share the models with the installed Speakty.
 
-`linux/scripts/release.sh [patch|minor|major|X.Y.Z]` runs on the Mac. It bumps the version in `linux/Cargo.toml`, pushes it to `main` with tag `linux-v<version>`, and runs `linux/scripts/publish.sh`. That builds the archive from the tag on the Linux machine, signs it with Sparkle's key from the login keychain, and publishes the GitHub release with the archive, its checksum, and `speakty-linux.json`, the manifest installed copies update from. Linux releases are never marked latest, because the macOS app's Sparkle feed is `releases/latest`.
+GitHub Actions runs the Linux tests on every pull request and builds the release archive for every `v*` tag in a Debian 13 container, whose older libraries make the binary run on rolling distributions too. Releases cover both apps; see Package, install, and roll back on macOS.

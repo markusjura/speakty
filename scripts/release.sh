@@ -1,15 +1,16 @@
 #!/bin/zsh
-# Releases Speakty: bumps the version, pushes it to main with tag v<version>, then packages, installs,
-# launches, and publishes that release on GitHub.
-# Usage: Scripts/release.sh [patch|minor|major|X.Y.Z]
+# Releases Speakty for macOS and Linux under one version: bumps it, pushes it to main with tag
+# v<version>, packages, installs, and launches the macOS app, then publishes both on GitHub. The tag
+# push starts the Linux build in GitHub Actions, which publish.sh waits for.
+# Usage: scripts/release.sh [patch|minor|major|X.Y.Z]
 #   patch (default) 0.1.0 → 0.1.1, minor 0.1.4 → 0.2.0, major 0.2.0 → 1.0.0, or an exact higher version.
-# Run it only when asked.
+# Runs on a Mac with the signing identity and the Sparkle key. Run it only when asked.
 set -euo pipefail
 cd "${0:A:h:h}"
 
 fail() { print -u2 "$1"; exit 1 }
-usage="Usage: Scripts/release.sh [patch|minor|major|X.Y.Z]"
-config=Config/Version.xcconfig
+usage="Usage: scripts/release.sh [patch|minor|major|X.Y.Z]"
+config=Version.xcconfig
 
 [[ $# -le 1 ]] || fail "$usage"
 [[ -z "$(git status --porcelain)" ]] || fail "Commit or stash your changes first."
@@ -26,13 +27,13 @@ case "${1:-patch}" in
   <->.<->.<->) next="$1" ;;
   *) fail "$usage" ;;
 esac
-# Installs and Sparkle order releases by version, so it only ever goes up.
+# Installs and both updaters order releases by version, so it only ever goes up.
 autoload -Uz is-at-least
 [[ "$next" != "$current" ]] && is-at-least "$current" "$next" || fail "$next is not above the current $current."
 [[ -z "$(git tag --list "v$next")" ]] || fail "Tag v$next already exists."
-# Publishing signs the update for Sparkle, so make sure it can before the version is taken.
-[[ "$(Scripts/sparkle.sh generate_keys -p)" == "$(plutil -extract SUPublicEDKey raw Config/Info.plist)" ]] ||
-  fail "The login keychain has no Sparkle key matching SUPublicEDKey in Config/Info.plist."
+# Publishing signs both updates with Sparkle's key, so make sure it can before the version is taken.
+[[ "$(macos/Scripts/sparkle.sh generate_keys -p)" == "$(plutil -extract SUPublicEDKey raw macos/Config/Info.plist)" ]] ||
+  fail "The login keychain has no Sparkle key matching SUPublicEDKey in macos/Config/Info.plist."
 
 sed -i '' "s/^MARKETING_VERSION = .*/MARKETING_VERSION = $next/" $config
 git commit --quiet -m "chore: release $next" $config
@@ -42,8 +43,8 @@ git push --quiet --atomic origin HEAD:main "v$next" ||
   fail "Push failed. Undo the local release with: git tag -d v$next && git reset --keep HEAD~1"
 
 # From here on the version is taken, so a failure is finished by hand, not by releasing again.
-trap 'print -u2 "Pushed $next, but a step failed. Fix it, then run the remaining steps of: Scripts/package.sh, Scripts/install.sh .build/releases/Speakty-$next.zip, Scripts/run.sh installed, Scripts/publish.sh $next"' ERR
-Scripts/package.sh
-Scripts/install.sh ".build/releases/Speakty-$next.zip"
-Scripts/run.sh installed
-Scripts/publish.sh "$next"
+trap 'print -u2 "Pushed $next, but a step failed. Fix it, then run the remaining steps of: macos/Scripts/package.sh, macos/Scripts/install.sh macos/.build/releases/Speakty-$next.zip, macos/Scripts/run.sh installed, scripts/publish.sh $next"' ERR
+macos/Scripts/package.sh
+macos/Scripts/install.sh "macos/.build/releases/Speakty-$next.zip"
+macos/Scripts/run.sh installed
+scripts/publish.sh "$next"
