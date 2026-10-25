@@ -102,10 +102,17 @@ fn prune() {
     }
 }
 
-/// Writes the desktop entry, icon, and systemd unit, and enables the unit.
+/// Writes the desktop entry, icon, systemd unit, and the `speakty` command in ~/.local/bin, and
+/// enables the unit.
 pub fn integrate() -> std::io::Result<()> {
     let data = gtk::glib::user_data_dir();
     let binary = current_binary();
+    let command = gtk::glib::home_dir().join(".local/bin/speakty");
+    std::fs::create_dir_all(command.parent().unwrap())?;
+    let staged = command.with_file_name(".speakty.new");
+    let _ = std::fs::remove_file(&staged);
+    std::os::unix::fs::symlink(&binary, &staged)?;
+    std::fs::rename(staged, command)?;
     let icon = data.join("icons/hicolor/512x512/apps").join(format!("{INSTALLED_ID}.png"));
     std::fs::create_dir_all(icon.parent().unwrap())?;
     std::fs::write(&icon, ICON)?;

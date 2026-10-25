@@ -23,11 +23,12 @@ Speakty for Linux needs a Wayland compositor with the data-control protocol, suc
    ```sh
    sudo usermod -aG input $USER
    echo 'KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"' | sudo tee /etc/udev/rules.d/70-speakty-uinput.rules
+   sudo udevadm control --reload && sudo udevadm trigger /dev/uinput
    ```
 2. Download `speakty-linux-<version>-x86_64.tar.gz` from the newest `linux-v` release on the [releases page](https://github.com/markusjura/speakty/releases).
 3. Run `tar xzf speakty-linux-*.tar.gz && speakty/speakty install`.
 
-The installer puts Speakty in `~/.local/share/speakty`, without root, and starts it as the `speakty.service` user unit with the graphical session. Open Settings from your app launcher or with `speakty settings`. It downloads the dictation model (about 670 MB) on first launch, and later versions install themselves. `~/.local/share/speakty/current/speakty install --rollback` goes back to the previous version. Members of the `input` group can read every keystroke, so grant it only on a computer you trust.
+The installer puts Speakty in `~/.local/share/speakty`, without root, links `~/.local/bin/speakty` to it, and starts it as the `speakty.service` user unit with the graphical session. Open Settings from your app launcher or with `speakty settings`. It downloads the dictation model (about 670 MB) on first launch, and later versions install themselves. `speakty install --rollback` goes back to the previous version. Members of the `input` group can read every keystroke, so grant it only on a computer you trust.
 
 ## Build and test on macOS
 
@@ -83,7 +84,7 @@ Keeping the bundle ID and signing identity stable keeps the grants across update
 
 ## Build, test, and release on Linux
 
-`linux/AGENTS.md` describes the workflow, including driving the Linux machine from the Mac with `linux/scripts/remote.sh`. Builds need Rust 1.88 or later and the development files of GTK 4, libadwaita, gtk4-layer-shell, and PipeWire. `cargo build` downloads sherpa-onnx with ONNX Runtime and links them statically, so the binary needs no ONNX Runtime on the system.
+`linux/AGENTS.md` describes the workflow, including driving the Linux machine from the Mac with `linux/scripts/remote.sh`. Builds need Rust 1.92 or later and the development files of GTK 4, libadwaita, gtk4-layer-shell, and PipeWire. `cargo build` downloads sherpa-onnx with ONNX Runtime and links them statically, so the binary needs no ONNX Runtime on the system.
 
 ```sh
 linux/scripts/test.sh          # unit tests and the shared transcript cases
