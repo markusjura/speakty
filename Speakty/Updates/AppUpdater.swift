@@ -145,7 +145,7 @@ final class AppUpdater: NSObject {
         guard let installUpdate, case .ready(let release, _) = status else { return }
         let idle = !environment.isBusy() && (environment.isScreenLocked() || environment.secondsSinceInput() >= Self.quietPeriod)
         if installsAutomatically, idle {
-            Logger(subsystem: "local.markus.Speakty", category: "updates").info("Relaunching into \(release.version, privacy: .public)")
+            Logger(subsystem: "local.markus.Speakty", category: "Updates").info("Relaunching into \(release.version, privacy: .public)")
             installUpdate()
             return
         }
