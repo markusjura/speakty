@@ -1,0 +1,264 @@
+{
+  "_comment": "Behavior shared by the macOS and Linux apps. macos/SpeaktyTests/SpecTests.swift and linux/tests/spec.rs both run every case, so the two implementations can't drift apart. Add a case here when a transcript rule changes.",
+  "replacements": [
+    {
+      "name": "Plain text matches whole words, ignoring case",
+      "rules": [
+        {
+          "find": "co-dex",
+          "replacement": "Codex"
+        },
+        {
+          "find": "cat",
+          "replacement": "$dog"
+        }
+      ],
+      "input": "Ask Co-dex about the cat, not the category.",
+      "output": "Ask Codex about the $dog, not the category."
+    },
+    {
+      "name": "Patterns run in order with group templates",
+      "rules": [
+        {
+          "find": "(?i)slash (\\w+)\\.?",
+          "replacement": "/$1",
+          "isPattern": true
+        },
+        {
+          "find": "(?i)dollar (\\w+)\\.?",
+          "replacement": "\\$$1",
+          "isPattern": true
+        }
+      ],
+      "input": "Run slash commit, then echo dollar HOME.",
+      "output": "Run /commit, then echo $HOME"
+    },
+    {
+      "name": "A dollar sign before a group reference is literal",
+      "rules": [
+        {
+          "find": "(?i)dollar (\\w+)\\.?",
+          "replacement": "$$1",
+          "isPattern": true
+        }
+      ],
+      "input": "echo dollar HOME.",
+      "output": "echo $HOME"
+    },
+    {
+      "name": "Template escapes and digits after a group",
+      "rules": [
+        {
+          "find": "(?i)dollar (\\w+)\\.?",
+          "replacement": "$12 a\\\\b \\n ${1}",
+          "isPattern": true
+        }
+      ],
+      "input": "echo dollar HOME.",
+      "output": "echo HOME2 a\\b n ${1}"
+    },
+    {
+      "name": "An invalid pattern is skipped",
+      "rules": [
+        {
+          "find": "(unclosed",
+          "replacement": "x",
+          "isPattern": true
+        }
+      ],
+      "input": "(unclosed",
+      "output": "(unclosed"
+    }
+  ],
+  "fitting": [
+    {
+      "text": "Then ship it.",
+      "before": "We test it",
+      "output": " then ship it."
+    },
+    {
+      "text": "Then ship it.",
+      "before": "We test it. ",
+      "output": "Then ship it."
+    },
+    {
+      "text": "Then ship it.",
+      "before": "Done.\n",
+      "output": "Then ship it.",
+      "name": "A new line starts fresh"
+    },
+    {
+      "text": "Then ship it.",
+      "before": "",
+      "output": "Then ship it."
+    },
+    {
+      "text": "Then ship it.",
+      "before": null,
+      "output": "Then ship it.",
+      "name": "Unknown context leaves the text alone"
+    },
+    {
+      "text": "I think so.",
+      "before": "and",
+      "output": " I think so."
+    },
+    {
+      "text": "API keys stay.",
+      "before": "and",
+      "output": " API keys stay."
+    },
+    {
+      "text": "Codex fixed it.",
+      "before": "and",
+      "output": " Codex fixed it."
+    },
+    {
+      "text": "Visual Studio opens.",
+      "before": "and",
+      "output": " Visual Studio opens.",
+      "name": "A name protects its first word"
+    },
+    {
+      "text": "Codexes run.",
+      "before": "and",
+      "output": " codexes run.",
+      "name": "Only whole names count"
+    },
+    {
+      "text": ", right?",
+      "before": "It works",
+      "output": ", right?"
+    },
+    {
+      "text": "Hello",
+      "before": "say (",
+      "output": "hello"
+    },
+    {
+      "text": "\n\nNext topic.",
+      "before": "Done",
+      "output": "\n\nNext topic.",
+      "name": "A spoken new paragraph gets no space"
+    }
+  ],
+  "fittingNames": [
+    "Codex",
+    "Visual Studio"
+  ],
+  "closing": [
+    {
+      "input": "Here's a test. Like this one",
+      "output": "Here's a test. Like this one."
+    },
+    {
+      "input": "Is it done? Yes",
+      "output": "Is it done? Yes."
+    },
+    {
+      "input": "Here's a test. Done!",
+      "output": "Here's a test. Done!"
+    },
+    {
+      "input": "swift concurrency docs",
+      "output": "swift concurrency docs",
+      "name": "One phrase stays open"
+    },
+    {
+      "input": "Version 3.5 of the app",
+      "output": "Version 3.5 of the app"
+    },
+    {
+      "input": "Dr. Smith opening hours",
+      "output": "Dr. Smith opening hours",
+      "name": "An abbreviation ends no sentence"
+    },
+    {
+      "input": "Wir treffen uns z. B. morgen",
+      "output": "Wir treffen uns z. B. morgen"
+    }
+  ],
+  "paragraphCommands": [
+    {
+      "input": "I'd start with a new paragraph new paragraph like the previous pause.",
+      "output": "I'd start with a new paragraph.\n\nLike the previous pause."
+    },
+    {
+      "input": "That's it. New paragraph. Next topic.",
+      "output": "That's it.\n\nNext topic."
+    },
+    {
+      "input": "Is that right, new paragraph, yes it is.",
+      "output": "Is that right.\n\nYes it is."
+    },
+    {
+      "input": "Is that right? New paragraph. Yes.",
+      "output": "Is that right?\n\nYes."
+    },
+    {
+      "input": "Are you sure (really)? New paragraph. Yes.",
+      "output": "Are you sure (really)?\n\nYes."
+    },
+    {
+      "input": "He said \"done.\" New paragraph. Then he left.",
+      "output": "He said \"done.\"\n\nThen he left."
+    },
+    {
+      "input": "Er sagte „fertig.“ Neuer Absatz. Dann ging er.",
+      "output": "Er sagte „fertig.“\n\nDann ging er."
+    },
+    {
+      "input": "See the docs (above), new paragraph, then ship.",
+      "output": "See the docs (above).\n\nThen ship."
+    },
+    {
+      "input": "Das passt. Neuer Absatz. Weiter geht's.",
+      "output": "Das passt.\n\nWeiter geht's."
+    },
+    {
+      "input": "New paragraph. Hello there.",
+      "output": "\n\nHello there.",
+      "name": "At the start, it breaks from the text before the caret"
+    },
+    {
+      "input": "Done. New paragraph.",
+      "output": "Done.\n\n"
+    },
+    {
+      "input": "Write a new paragraph and some new paragraphs.",
+      "output": "Write a new paragraph and some new paragraphs."
+    }
+  ],
+  "paragraphs": [
+    {
+      "name": "A short text stays one paragraph",
+      "input": "Thanks for the update. I'll look at it after lunch. Then I'll get back to you.",
+      "output": "Thanks for the update. I'll look at it after lunch. Then I'll get back to you."
+    },
+    {
+      "name": "A long text splits into even paragraphs",
+      "input": "Sentence 0 has a few words that make exactly ten. Sentence 1 has a few words that make exactly ten. Sentence 2 has a few words that make exactly ten. Sentence 3 has a few words that make exactly ten. Sentence 4 has a few words that make exactly ten. Sentence 5 has a few words that make exactly ten. Sentence 6 has a few words that make exactly ten. Sentence 7 has a few words that make exactly ten. Sentence 8 has a few words that make exactly ten. Sentence 9 has a few words that make exactly ten.",
+      "output": "Sentence 0 has a few words that make exactly ten. Sentence 1 has a few words that make exactly ten. Sentence 2 has a few words that make exactly ten. Sentence 3 has a few words that make exactly ten. Sentence 4 has a few words that make exactly ten.\n\nSentence 5 has a few words that make exactly ten. Sentence 6 has a few words that make exactly ten. Sentence 7 has a few words that make exactly ten. Sentence 8 has a few words that make exactly ten. Sentence 9 has a few words that make exactly ten."
+    },
+    {
+      "name": "A new topic starts a paragraph",
+      "input": "Sentence 0 has a few words that make exactly ten. Sentence 1 has a few words that make exactly ten. Sentence 2 has a few words that make exactly ten. Sentence 3 has a few words that make exactly ten. Sentence 4 has a few words that make exactly ten. Sentence 5 has a few words that make exactly ten. Also, Sentence 6 has a few words that make exactly ten. Sentence 7 has a few words that make exactly ten. Sentence 8 has a few words that make exactly ten. Sentence 9 has a few words that make exactly ten.",
+      "output": "Sentence 0 has a few words that make exactly ten. Sentence 1 has a few words that make exactly ten. Sentence 2 has a few words that make exactly ten. Sentence 3 has a few words that make exactly ten. Sentence 4 has a few words that make exactly ten. Sentence 5 has a few words that make exactly ten.\n\nAlso, Sentence 6 has a few words that make exactly ten. Sentence 7 has a few words that make exactly ten. Sentence 8 has a few words that make exactly ten. Sentence 9 has a few words that make exactly ten."
+    },
+    {
+      "name": "A continuation doesn't",
+      "input": "Sentence 0 has a few words that make exactly ten. Sentence 1 has a few words that make exactly ten. Sentence 2 has a few words that make exactly ten. Sentence 3 has a few words that make exactly ten. Sentence 4 has a few words that make exactly ten. But Sentence 5 has a few words that make exactly ten. Sentence 6 has a few words that make exactly ten. Sentence 7 has a few words that make exactly ten. Sentence 8 has a few words that make exactly ten. Sentence 9 has a few words that make exactly ten.",
+      "output": "Sentence 0 has a few words that make exactly ten. Sentence 1 has a few words that make exactly ten. Sentence 2 has a few words that make exactly ten. Sentence 3 has a few words that make exactly ten. Sentence 4 has a few words that make exactly ten. But Sentence 5 has a few words that make exactly ten.\n\nSentence 6 has a few words that make exactly ten. Sentence 7 has a few words that make exactly ten. Sentence 8 has a few words that make exactly ten. Sentence 9 has a few words that make exactly ten."
+    },
+    {
+      "name": "A German topic opening",
+      "input": "Sentence 0 has a few words that make exactly ten. Sentence 1 has a few words that make exactly ten. Sentence 2 has a few words that make exactly ten. Sentence 3 has a few words that make exactly ten. Außerdem Sentence 4 has a few words that make exactly ten. Sentence 5 has a few words that make exactly ten. Sentence 6 has a few words that make exactly ten. Sentence 7 has a few words that make exactly ten. Sentence 8 has a few words that make exactly ten. Sentence 9 has a few words that make exactly ten.",
+      "output": "Sentence 0 has a few words that make exactly ten. Sentence 1 has a few words that make exactly ten. Sentence 2 has a few words that make exactly ten. Sentence 3 has a few words that make exactly ten.\n\nAußerdem Sentence 4 has a few words that make exactly ten. Sentence 5 has a few words that make exactly ten. Sentence 6 has a few words that make exactly ten. Sentence 7 has a few words that make exactly ten. Sentence 8 has a few words that make exactly ten. Sentence 9 has a few words that make exactly ten."
+    },
+    {
+      "name": "Line breaks already in the text stay, and the sentences after one split evenly",
+      "input": "Sentence 0 has a few words that make exactly ten.\nSentence 1 has a few words that make exactly ten. Sentence 2 has a few words that make exactly ten. Sentence 3 has a few words that make exactly ten. Sentence 4 has a few words that make exactly ten. Sentence 5 has a few words that make exactly ten. Sentence 6 has a few words that make exactly ten. Sentence 7 has a few words that make exactly ten. Sentence 8 has a few words that make exactly ten. Sentence 9 has a few words that make exactly ten.",
+      "output": "Sentence 0 has a few words that make exactly ten.\nSentence 1 has a few words that make exactly ten. Sentence 2 has a few words that make exactly ten. Sentence 3 has a few words that make exactly ten. Sentence 4 has a few words that make exactly ten. Sentence 5 has a few words that make exactly ten.\n\nSentence 6 has a few words that make exactly ten. Sentence 7 has a few words that make exactly ten. Sentence 8 has a few words that make exactly ten. Sentence 9 has a few words that make exactly ten."
+    }
+  ]
+}
