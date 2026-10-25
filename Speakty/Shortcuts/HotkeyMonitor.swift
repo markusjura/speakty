@@ -11,8 +11,11 @@ import os
 @MainActor @Observable
 final class HotkeyMonitor {
     enum Event: Equatable {
-        case pressed
-        case released
+        /// The time is in seconds since startup, as `NSEvent.timestamp`. For a modifier key it's when
+        /// the key moved, even if handling lags behind while a slow audio interface starts recording.
+        /// Carbon stamps a key combination's events when they're dispatched instead.
+        case pressed(at: TimeInterval)
+        case released(at: TimeInterval)
         /// Another key went down while a modifier shortcut was held, as in ⌘C with Right ⌘.
         case interrupted
         /// Escape while `watchesEscape`.
@@ -63,7 +66,7 @@ final class HotkeyMonitor {
         } onChange: { [weak self] in
             Task { @MainActor in self?.synchronize() }
         }
-        if isHeld { isHeld = false; handler(.released) }
+        if isHeld { isHeld = false; handler(.released(at: ProcessInfo.processInfo.systemUptime)) }
         removeTap()
         unregister(Self.shortcutID)
         isTaken = false
@@ -121,14 +124,15 @@ final class HotkeyMonitor {
         switch type {
         case .tapDisabledByTimeout, .tapDisabledByUserInput:
             // A release may have passed unseen, so end a held shortcut and listen again.
-            if isHeld { isHeld = false; handler(.released) }
+            if isHeld { isHeld = false; handler(.released(at: ProcessInfo.processInfo.systemUptime)) }
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
         case .flagsChanged:
             guard let watchedKey, event.getIntegerValueField(.keyboardEventKeycode) == Int64(watchedKey.keyCode) else { return }
             let isDown = event.flags.rawValue & watchedKey.flag != 0
             guard isDown != isHeld else { return }
             isHeld = isDown
-            handler(isDown ? .pressed : .released)
+            let time = NSEvent(cgEvent: event)?.timestamp ?? ProcessInfo.processInfo.systemUptime
+            handler(isDown ? .pressed(at: time) : .released(at: time))
         case .keyDown:
             guard isHeld else { return }
             isHeld = false
@@ -151,21 +155,22 @@ final class HotkeyMonitor {
             guard status == noErr, hotKeyID.signature == HotkeyMonitor.signature else { return OSStatus(eventNotHandledErr) }
             let isPress = GetEventKind(event) == UInt32(kEventHotKeyPressed)
             let id = hotKeyID.id
+            let time = GetEventTime(event)
             // The application event target dispatches on the main thread.
             MainActor.assumeIsolated {
-                Unmanaged<HotkeyMonitor>.fromOpaque(userInfo).takeUnretainedValue().hotKey(id, isPress: isPress)
+                Unmanaged<HotkeyMonitor>.fromOpaque(userInfo).takeUnretainedValue().hotKey(id, isPress: isPress, at: time)
             }
             return noErr
         }, types.count, types, Unmanaged.passUnretained(self).toOpaque(), &eventHandler)
         if status != noErr { logger.error("Couldn't install the hot key handler: \(status)") }
     }
 
-    private func hotKey(_ id: UInt32, isPress: Bool) {
+    private func hotKey(_ id: UInt32, isPress: Bool, at time: TimeInterval) {
         switch id {
         case Self.shortcutID:
             guard isPress != isHeld else { return }
             isHeld = isPress
-            handler(isPress ? .pressed : .released)
+            handler(isPress ? .pressed(at: time) : .released(at: time))
         case Self.escapeID, Self.heldEscapeID:
             if isPress { handler(.escape) }
         default: break
