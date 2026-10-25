@@ -1,15 +1,11 @@
 import Foundation
 import Observation
 
-/// Samples a voice level 30 times a second for the recording display: the current level and a short
-/// history for the scrolling waveform. Only views that read it redraw, and only while it runs.
+/// Samples a voice level 30 times a second for the recording display. Only views that read it
+/// redraw, and only while it runs.
 @MainActor @Observable
 final class LevelMeter {
-    static let historyLength = 26
-
     private(set) var level: Float = 0
-    /// Oldest first.
-    private(set) var history = [Float](repeating: 0, count: historyLength)
 
     @ObservationIgnored private let source: @MainActor () -> Float
     @ObservationIgnored private var timer: Timer?
@@ -30,7 +26,6 @@ final class LevelMeter {
 
     func start() {
         guard timer == nil else { return }
-        history = [Float](repeating: 0, count: Self.historyLength)
         let timer = Timer(timeInterval: 1 / 30, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.sample() }
         }
@@ -39,7 +34,7 @@ final class LevelMeter {
         self.timer = timer
     }
 
-    /// Freezes the level and history where they are.
+    /// Freezes the level where it is.
     func stop() {
         timer?.invalidate()
         timer = nil
@@ -47,7 +42,5 @@ final class LevelMeter {
 
     private func sample() {
         level = source()
-        history.removeFirst()
-        history.append(level)
     }
 }

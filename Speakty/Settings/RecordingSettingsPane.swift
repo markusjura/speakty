@@ -12,7 +12,7 @@ struct RecordingSettingsPane: View {
                 LabeledContent("Style") {
                     HStack(spacing: 12) {
                         ForEach(OverlayStyle.allCases, id: \.self) { style in
-                            StyleTile(style: style, position: preferences.recording.position, meter: meter,
+                            StyleTile(style: style, recording: preferences.recording, meter: meter,
                                       isSelected: preferences.recording.style == style) {
                                 preferences.recording.style = style
                             }
@@ -20,6 +20,24 @@ struct RecordingSettingsPane: View {
                     }
                     .fixedSize()
                     .padding(.vertical, 10)
+                    // Without a container, the tiles and the Size slider below vanish from accessibility.
+                    .accessibilityElement(children: .contain)
+                }
+                LabeledContent("Size") {
+                    HStack {
+                        // Rounded to whole percents instead of stepped, since a step draws a tick mark for every value.
+                        Slider(value: Binding(get: { preferences.recording.scale },
+                                              set: { preferences.recording.scale = ($0 * 100).rounded() / 100 }),
+                               in: RecordingPreferences.scaleRange) {
+                            Text("Size")
+                        }
+                        .labelsHidden()
+                        .frame(width: 160)
+                        Text("\(Int((preferences.recording.scale * 100).rounded()))%")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .frame(width: 44, alignment: .trailing)
+                    }
                 }
                 Picker("Position", selection: $preferences.recording.position) {
                     Text("Bottom").tag(OverlayPosition.bottom)
@@ -65,10 +83,11 @@ struct RecordingSettingsPane: View {
     }
 }
 
-/// A style choice showing the real display, listening, on a small desktop.
+/// A style choice showing the real display, listening, on a small desktop, at the chosen size
+/// and position.
 private struct StyleTile: View {
     let style: OverlayStyle
-    let position: OverlayPosition
+    let recording: RecordingPreferences
     let meter: LevelMeter
     let isSelected: Bool
     let select: () -> Void
@@ -80,11 +99,10 @@ private struct StyleTile: View {
                     .fill(LinearGradient(colors: [Color(red: 0.43, green: 0.49, blue: 0.79), Color(red: 0.71, green: 0.56, blue: 0.82),
                                                   Color(red: 0.91, green: 0.66, blue: 0.73)], startPoint: .topLeading, endPoint: .bottomTrailing))
                     .frame(width: 112, height: 66)
-                    .overlay(alignment: position == .bottom ? .bottom : .top) {
+                    .overlay(alignment: recording.position.alignment) {
                         OverlayView(style: style, isTranscribing: false, meter: meter)
-                            .scaleEffect(0.5)
-                            .frame(height: 30)
-                            .padding(.vertical, 4)
+                            .scaleEffect(0.5 * recording.scale, anchor: recording.position.anchor)
+                            .padding(.vertical, 7)
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 9))
                     .overlay {
@@ -105,7 +123,7 @@ private struct StyleTile: View {
 private extension OverlayStyle {
     var title: String {
         switch self {
-        case .minimal: "Minimal"
+        case .dark: "Dark"
         case .glass: "Glass"
         case .orb: "Orb"
         }
