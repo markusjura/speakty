@@ -1,0 +1,40 @@
+[package]
+name = "speakty"
+# The Linux app's version, the only one we maintain. linux/scripts/release.sh bumps it.
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+adw = { package = "libadwaita", version = "0.9", features = ["v1_6"] }
+async-channel = "2"
+base64 = "0.22"
+ed25519-dalek = "3"
+env_logger = { version = "0.11", default-features = false }
+evdev = "0.13"
+fancy-regex = "0.20"
+# Direct only to turn on newer GLib APIs: the state directory and printing to a handed-over command line.
+gio = { version = "0.22", features = ["v2_80"] }
+glib = { version = "0.22", features = ["v2_80"] }
+flate2 = "1"
+gtk = { package = "gtk4", version = "0.11", features = ["v4_12"] }
+gtk4-layer-shell = "0.8"
+hound = "3"
+inotify = "0.11"
+ksni = { version = "0.3", default-features = false, features = ["blocking", "async-io"] }
+log = "0.4"
+pipewire = "0.10"
+regex = "1"
+semver = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+sherpa-onnx = "2"
+tar = "0.4"
+unicode-segmentation = "1"
+ureq = { version = "3", features = ["json"] }
+wl-clipboard-rs = "0.9"
+
+[profile.dev.package."*"]
+# Dependencies such as the audio front end are too slow unoptimized; Speakty's own code stays quick to build.
+opt-level = 3
