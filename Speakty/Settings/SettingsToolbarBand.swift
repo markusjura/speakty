@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 extension View {
-    /// System Settings' toolbar states over a pane: while the pointer is over the pane's part of
+    /// Draws the toolbar states over a pane: while the pointer is over the pane's part of
     /// the toolbar, including while dragging the window by it, or while the window is inactive, a
     /// `SettingsColor.toolbarLine` hairline appears under the toolbar. The toolbar itself keeps the
     /// canvas color in every state and both sidebar modes. Apply to the detail column.
@@ -22,7 +22,7 @@ private struct SettingsToolbarBand: ViewModifier {
                 HoverTracker { isHovering = $0 }
                     .frame(height: proxy.safeAreaInsets.top)
                     .overlay(alignment: .bottom) {
-                        // One device pixel just below the toolbar, as in System Settings.
+                        // One device pixel just below the toolbar.
                         if isHovering || !appearsActive {
                             SettingsColor.toolbarLine.frame(height: pixelLength).offset(y: pixelLength).allowsHitTesting(false)
                         }
@@ -57,12 +57,11 @@ private struct HoverTracker: NSViewRepresentable {
     }
 }
 
-/// The translucent sidebar: a behind-window material under a white wash, tuned to Raycast's
-/// translucent sidebar (dark #1B1D1D; inactive #1F2020 over a dark desktop). Dark mode's
-/// `underPageBackground` takes on the desktop's tint, but in light mode it stays a flat gray, so
-/// light mode uses `sidebar`, which blurs what's behind the window as Finder's sidebar does. Its
-/// wash keeps the selected row's #DADADA fill visible over dark windows, and the inactive state
-/// close to Raycast's #F5F5F5.
+/// The translucent sidebar: a behind-window material under a white wash. Over a dark desktop, dark
+/// mode comes out near #1B1D1D, and #1F2020 while inactive. Dark mode's `underPageBackground` takes
+/// on the desktop's tint, but in light mode it stays a flat gray, so light mode uses `sidebar`, which
+/// blurs what's behind the window. Its wash keeps the selected row's #DADADA fill visible over dark
+/// windows, and the inactive state close to #F5F5F5.
 struct SidebarMaterial: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.appearsActive) private var appearsActive

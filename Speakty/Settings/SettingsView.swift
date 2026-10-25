@@ -43,7 +43,7 @@ struct SettingsView: View {
     @State private var history = SettingsHistory()
 
     var body: some View {
-        // A native split view gives Finder's full-height sidebar under the traffic lights and a
+        // A native split view gives a full-height sidebar under the traffic lights and a
         // toolbar that blends into the pane instead of a separate titlebar band. The sidebar is
         // translucent unless General turns it off.
         NavigationSplitView {
@@ -53,8 +53,7 @@ struct SettingsView: View {
                     .listRowInsets(EdgeInsets())
             }
             .navigationSplitViewColumnWidth(180)
-            // Starts the first row 60 pt below the window top, where System Settings and Raycast
-            // start their search field and Finder its first section header.
+            // Starts the first row 60 pt below the window top.
             .safeAreaPadding(.top, 8)
             .scrollContentBackground(.hidden)
             .background { sidebarFill.ignoresSafeArea() }
@@ -77,7 +76,7 @@ struct SettingsView: View {
             .background(SettingsColor.canvas.ignoresSafeArea())
             .settingsToolbarBand()
             .toolbar {
-                // System Settings' back and forward pair. Like System Settings, it has no keyboard shortcuts.
+                // Back and forward through the pane history, without keyboard shortcuts.
                 ToolbarItem(placement: .navigation) {
                     ControlGroup {
                         Button("Back", systemImage: "chevron.left") { pane = history.back(from: pane) ?? pane }
@@ -89,7 +88,7 @@ struct SettingsView: View {
                 }
             }
         }
-        // The standard window title, left-aligned after the back and forward pair as in System Settings.
+        // The standard window title, left-aligned after the back and forward pair.
         .navigationTitle(pane.title)
         // AppKit's own toolbar background would use system colors; the band above draws the
         // toolbar states with the settings colors instead.

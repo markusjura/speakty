@@ -36,7 +36,7 @@ for id in $installed_id $dev_id; do
   running $id && fail "$id didn't quit within 15 s. Quit it, then retry."
 done
 
-# Spotlight skips hidden folders like .build, so Spotlight, Raycast, and System Settings' app pickers
+# Spotlight skips hidden folders like .build, so Spotlight, app launchers, and System Settings' app pickers
 # only list a copy in ~/Applications. Every checkout and worktree updates that one copy. It runs after
 # the quit, so it never replaces a running app, and the staged copy keeps a failed ditto from leaving
 # a half-written app. Grants follow the signature and bundle ID, so they carry over to the copy.
