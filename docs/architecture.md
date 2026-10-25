@@ -53,7 +53,7 @@ This is a high-level overview. The code is the source of truth for details.
 - One app target and a unit test target hosted in Speakty Dev.
 - Speakty Dev and the installed Speakty have separate bundle IDs and share the downloaded models. They share the shortcut too, so launching one quits the other.
 - Distributed outside the App Store with Hardened Runtime, no App Sandbox, and Sparkle updates.
-- Signing, `Scripts/`, `AppPreferences`, the Settings theme, `Chrome` tokens, `ShortcutRecorder`, and `AppUpdater` follow Shotty and Spotty.
+- Signing, `macos/Scripts/`, `AppPreferences`, the Settings theme, `Chrome` tokens, `ShortcutRecorder`, and `AppUpdater` follow Shotty and Spotty.
 
 ## Design
 

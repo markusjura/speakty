@@ -1,4 +1,0 @@
-// Base configuration of every target.
-#include "Version.xcconfig"
-// Keep the local signing team out of the shared project.
-#include? "../Local.xcconfig"

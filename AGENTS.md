@@ -4,6 +4,8 @@ This file documents guidance for agents working in this repository. Record only 
 
 Speakty is Shotty's and Spotty's sibling. Keep shared patterns (Settings layout and theme, `ShortcutRecorder`, `AppPreferences`, `AppUpdater`, `Chrome` tokens, scripts) consistent with `~/workspace/shotty` and `~/workspace/spotty` unless Speakty needs something different. `docs/architecture.md` records the architecture decisions.
 
+The macOS app lives in `macos/`. Its scripts run from any directory; paths below are relative to `macos/`. `Local.xcconfig` stays in the repository root.
+
 ## Commands
 
 - `Scripts/run.sh dev` builds and relaunches Speakty Dev. Run it after every successful change, so the running app matches the code.

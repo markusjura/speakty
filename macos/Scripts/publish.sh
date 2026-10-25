@@ -1,6 +1,7 @@
 #!/bin/zsh
 # Publishes a packaged version as a GitHub release: the DMG and its checksum for people, and the ZIP
-# with a signed appcast.xml for Sparkle, which installed copies check through releases/latest.
+# with a signed appcast.xml for Sparkle, which installed copies check through releases/latest. It marks
+# the release as latest explicitly, since Linux releases (linux-v*) share the repository and must never be.
 # Usage: Scripts/publish.sh <version>
 # Scripts/release.sh runs it last. Run it alone to retry a failed publish; it updates an existing release.
 # Needs tag v<version> on origin and .build/releases/Speakty-<version>.dmg and .zip from Scripts/package.sh.
@@ -20,13 +21,14 @@ done
 [[ -n "$(git ls-remote --tags origin "refs/tags/$tag")" ]] || fail "Tag $tag is not on origin."
 git fetch --quiet --tags origin
 
-# Changes since the previous release, without version bumps, chores, and merges.
+# Changes since the previous macOS release, without version bumps, chores, merges, and Linux-only commits.
 previous=$(git describe --tags --abbrev=0 --match 'v*' "$tag^" 2>/dev/null || true)
-changes=$([[ -n "$previous" ]] && git log --no-merges --format='- %s' "$previous..$tag" | grep -v '^- chore' || true)
+changes=$([[ -n "$previous" ]] && git log --no-merges --format='- %s' "$previous..$tag" -- .. ':(exclude)../linux' | grep -v '^- chore' || true)
 
-# README.md's Install section is the single copy of the install steps.
-install=$(awk '/^## /{ found = ($0 == "## Install") } found' README.md)
-[[ -n "$install" ]] || fail "README.md has no ## Install section."
+# The README's "Install on macOS" section is the single copy of the install steps.
+install=$(awk '/^## /{ found = ($0 == "## Install on macOS") } found' ../README.md)
+[[ -n "$install" ]] || fail "README.md has no ## Install on macOS section."
+
 notes="${changes:+## Changes
 
 $changes
@@ -68,8 +70,8 @@ xmllint --noout "$appcast" || fail "The generated appcast is not valid XML."
 
 if gh release view "$tag" >/dev/null 2>&1; then
   gh release upload "$tag" "$dmg" "$dmg.sha256" "$zip" "$appcast" --clobber
-  gh release edit "$tag" --title "Speakty $version" --notes "$notes" --draft=false >/dev/null
+  gh release edit "$tag" --title "Speakty $version" --notes "$notes" --draft=false --latest >/dev/null
 else
-  gh release create "$tag" "$dmg" "$dmg.sha256" "$zip" "$appcast" --verify-tag --title "Speakty $version" --notes "$notes" >/dev/null
+  gh release create "$tag" "$dmg" "$dmg.sha256" "$zip" "$appcast" --verify-tag --latest --title "Speakty $version" --notes "$notes" >/dev/null
 fi
 print "Published $(gh release view "$tag" --json url --jq .url)"
