@@ -35,6 +35,8 @@ final class DictationController {
     @ObservationIgnored private let muter = OutputMuter()
     @ObservationIgnored private let openPermissions: @MainActor () -> Void
     @ObservationIgnored private var work: Task<Void, Never>?
+    /// Counts recordings, so a microphone that starts late can tell whether its recording still runs.
+    @ObservationIgnored private var recordings = 0
     @ObservationIgnored private let logger = Logger(subsystem: "local.markus.Speakty", category: "Dictation")
 
     /// A release sooner than this after the press is a tap, which keeps recording until the next one.
@@ -76,8 +78,8 @@ final class DictationController {
     }
 
     /// The hold-or-tap rules: a hold records until its release, and a tap until the next tap. A tap
-    /// is measured between the key's own event times, not when they're handled: starting a slow
-    /// audio interface delays the release, which would otherwise turn every tap into a short hold.
+    /// is measured between the key's own event times, so a busy moment on the main thread can't turn
+    /// it into a short hold.
     static func action(for event: HotkeyMonitor.Event, in phase: Phase) -> Action {
         switch (event, phase) {
         case (.pressed(let time), .idle): .start(.held(since: time))
@@ -111,20 +113,34 @@ final class DictationController {
         default:
             return openPermissions()
         }
-        do {
-            try recorder.start(inputUID: preferences.recording.microphoneUID)
-        } catch {
-            NSSound.beep()
-            return logger.error("Recording didn't start: \(error.localizedDescription, privacy: .public)")
+        recordings += 1
+        let recording = recordings
+        recorder.start(inputUID: preferences.recording.microphoneUID) { [weak self] result in
+            guard let self, recording == recordings else { return }
+            microphoneStarted(result)
         }
         phase = .recording(trigger)
-        play(.start)
-        if preferences.recording.mutesAudio {
-            // After the start sound, which muting would cut off.
-            work = Task {
-                try? await Task.sleep(for: .milliseconds(150))
-                if isRecording { muter.mute() }
+    }
+
+    /// The display shows at once; the start sound waits for the microphone, which can take half a
+    /// second, so it tells when speech is heard.
+    private func microphoneStarted(_ result: Result<Void, any Error>) {
+        switch result {
+        case .success:
+            guard isRecording else { return }
+            play(.start)
+            if preferences.recording.mutesAudio {
+                // After the start sound, which muting would cut off.
+                work = Task {
+                    try? await Task.sleep(for: .milliseconds(150))
+                    if isRecording { muter.mute() }
+                }
             }
+        case .failure(let error):
+            guard phase != .idle else { return }
+            NSSound.beep()
+            logger.error("Recording didn't start: \(error.localizedDescription, privacy: .public)")
+            cancel()
         }
     }
 
@@ -135,7 +151,9 @@ final class DictationController {
         work = Task {
             // A cancel during the tail returns here, before it could stop a recording started since.
             do { try await Task.sleep(for: Self.releaseTail) } catch { return }
-            let samples = recorder.stop()
+            let samples = await recorder.stop()
+            // A cancel meanwhile has already restored the output, and a new recording may run.
+            guard !Task.isCancelled else { return }
             // Not before the tail ends, so resumed music doesn't end up in the recording.
             muter.restore()
             let speech = Transcript.speech(in: samples)

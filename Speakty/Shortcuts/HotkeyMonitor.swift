@@ -11,9 +11,7 @@ import os
 @MainActor @Observable
 final class HotkeyMonitor {
     enum Event: Equatable {
-        /// The time is in seconds since startup, as `NSEvent.timestamp`. For a modifier key it's when
-        /// the key moved, even if handling lags behind while a slow audio interface starts recording.
-        /// Carbon stamps a key combination's events when they're dispatched instead.
+        /// The time is when the key moved, in seconds since startup, as `NSEvent.timestamp`.
         case pressed(at: TimeInterval)
         case released(at: TimeInterval)
         /// Another key went down while a modifier shortcut was held, as in ⌘C with Right ⌘.

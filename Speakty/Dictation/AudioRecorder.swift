@@ -6,20 +6,27 @@ import os
 /// Records the microphone as 16 kHz mono samples, the format Parakeet takes, and meters the voice
 /// level for the recording display. A fresh engine per recording keeps the microphone off, and its
 /// indicator hidden, between dictations, and picks up the chosen input every time.
-@MainActor
-final class AudioRecorder {
+///
+/// The engine lives on a serial queue of its own, as capture sessions do: starting an interface
+/// such as the Vocaster takes over half a second, which on the main thread would hold up the key
+/// events that tell a tap from a hold. Calls queue up in the order they're made, so a stop or
+/// cancel always follows the start it belongs to. Its mutable state is only touched on that
+/// queue, which is why the class can be unchecked Sendable.
+final class AudioRecorder: @unchecked Sendable {
     enum Failure: Error { case noInput }
 
+    private let queue = DispatchQueue(label: "local.markus.Speakty.audio", qos: .userInitiated)
     /// Written on the audio thread, read on the main thread.
-    private nonisolated let capture = Capture()
+    private let capture = Capture()
     private var engine: AVAudioEngine?
     private let logger = Logger(subsystem: "local.markus.Speakty", category: "Audio")
     #if DEBUG
-    private var testAudio: Task<Void, Never>?
+    private var testAudio: DispatchSourceTimer?
+    private var testChunks: ArraySlice<[Float]> = []
     #endif
 
     /// The voice level in 0...1, for drawing.
-    nonisolated var level: Float { capture.level }
+    var level: Float { capture.level }
 
     /// False while Speakty Dev replays a test file instead of the microphone.
     var usesMicrophone: Bool {
@@ -30,9 +37,35 @@ final class AudioRecorder {
         #endif
     }
 
-    /// Records from the input with Core Audio UID `inputUID`, or the system default input when it's
-    /// nil or no longer connected.
-    func start(inputUID: String?) throws {
+    /// Starts recording from the input with Core Audio UID `inputUID`, or the system default input
+    /// when it's nil or no longer connected. Returns at once; `started` runs on the main actor once
+    /// the microphone is live, or with the error that kept it from starting.
+    func start(inputUID: String?, started: @escaping @MainActor @Sendable (Result<Void, any Error>) -> Void) {
+        queue.async { [self] in
+            let result = Result { try startEngine(inputUID: inputUID) }
+            Task { @MainActor in started(result) }
+        }
+    }
+
+    /// Stops and returns everything recorded since `start`. Main actor, like the calls to `start` and
+    /// `cancel`, so the stop is queued right away, ahead of any start that follows it.
+    @MainActor func stop() async -> [Float] {
+        await withCheckedContinuation { continuation in
+            queue.async { [self] in
+                tearDown()
+                continuation.resume(returning: capture.take())
+            }
+        }
+    }
+
+    func cancel() {
+        queue.async { [self] in
+            tearDown()
+            _ = capture.take()
+        }
+    }
+
+    private func startEngine(inputUID: String?) throws {
         capture.reset()
         #if DEBUG
         // Speakty Dev can replay a file instead of the microphone, so checks run without speaking:
@@ -57,8 +90,7 @@ final class AudioRecorder {
         let device = input.inputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0,
               let converter = MonoConverter(from: format, deviceChannels: device.channelCount) else { throw Failure.noInput }
-        // @Sendable, so the closure isn't main-actor isolated like this method: AVFAudio calls it on
-        // its own realtime queue, where a main-actor closure traps.
+        // AVFAudio calls the tap on its own realtime queue.
         input.installTap(onBus: 0, bufferSize: 2048, format: format) { @Sendable [capture] buffer, _ in
             capture.append(converter.convert(buffer))
         }
@@ -67,21 +99,11 @@ final class AudioRecorder {
         logger.info("Recording from \(device.sampleRate) Hz, \(device.channelCount) channels")
     }
 
-    /// Stops and returns everything recorded since `start`.
-    func stop() -> [Float] {
-        tearDown()
-        return capture.take()
-    }
-
-    func cancel() {
-        tearDown()
-        _ = capture.take()
-    }
-
     private func tearDown() {
         #if DEBUG
         testAudio?.cancel()
         testAudio = nil
+        testChunks = []
         #endif
         engine?.inputNode.removeTap(onBus: 0)
         engine?.stop()
@@ -99,14 +121,16 @@ final class AudioRecorder {
               let converter = MonoConverter(from: file.processingFormat, deviceChannels: file.processingFormat.channelCount) else { throw Failure.noInput }
         try file.read(into: buffer)
         let samples = converter.convert(buffer)
-        testAudio = Task { [capture] in
-            let chunk = Transcript.sampleRate / 20
-            for start in stride(from: 0, to: samples.count, by: chunk) {
-                capture.append(Array(samples[start..<min(start + chunk, samples.count)]))
-                try? await Task.sleep(for: .milliseconds(50))
-                if Task.isCancelled { return }
-            }
+        let chunk = Transcript.sampleRate / 20
+        testChunks = ArraySlice(stride(from: 0, to: samples.count, by: chunk).map { Array(samples[$0..<min($0 + chunk, samples.count)]) })
+        // On the recorder's queue, so a stop or cancel ends it before the next recording starts.
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(50))
+        timer.setEventHandler { [self] in
+            if let next = testChunks.popFirst() { capture.append(next) } else { testAudio?.cancel() }
         }
+        timer.resume()
+        testAudio = timer
     }
     #endif
 }
