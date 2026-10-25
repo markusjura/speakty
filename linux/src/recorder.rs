@@ -237,7 +237,8 @@ fn open_stream(
             let Some(data) = buffer.datas_mut().first_mut() else { return };
             let (offset, size) = (data.chunk().offset() as usize, data.chunk().size() as usize);
             let Some(bytes) = data.data() else { return };
-            let start = offset.min(bytes.len());
+            // The offset counts around the buffer, which holds no more than its own length.
+            let start = if bytes.is_empty() { 0 } else { offset % bytes.len() };
             let samples: Vec<f32> = bytes[start..(start + size).min(bytes.len())]
                 .chunks_exact(4)
                 .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))

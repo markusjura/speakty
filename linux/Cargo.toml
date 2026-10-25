@@ -13,9 +13,11 @@ ed25519-dalek = "3"
 env_logger = { version = "0.11", default-features = false }
 evdev = "0.13"
 fancy-regex = "0.20"
-# Direct only to turn on newer GLib APIs: the state directory and printing to a handed-over command line.
+# gio and glib are direct only to turn on newer GLib APIs: the state directory and printing to a handed-over
+# command line. glib-unix handles SIGTERM.
 gio = { version = "0.22", features = ["v2_80"] }
 glib = { version = "0.22", features = ["v2_80"] }
+glib-unix = "0.22"
 flate2 = "1"
 gtk = { package = "gtk4", version = "0.11", features = ["v4_12"] }
 gtk4-layer-shell = "0.8"

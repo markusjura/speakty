@@ -141,8 +141,8 @@ impl App {
         settings.present(pane);
     }
 
+    /// Shutdown cancels a dictation in progress and waits for the output and media to come back.
     pub fn quit(&self) {
-        self.dictation.cancel();
         self.application.quit();
     }
 
@@ -219,6 +219,11 @@ pub fn run(arguments: Vec<String>) -> glib::ExitCode {
             log::warn!("Can't write /dev/uinput, so transcripts stay on the clipboard");
         }
         APP.with(|app| *app.borrow_mut() = Some(App::new(application)));
+        // systemctl stop and Ctrl+C quit as the Quit command does, so the output never stays muted.
+        for signal in [15, 2] {
+            let application = application.clone();
+            glib_unix::unix_signal_add_local_once(signal, move || application.quit());
+        }
     });
     let launched = Cell::new(false);
     application.connect_command_line(move |_, line| {
@@ -229,7 +234,7 @@ pub fn run(arguments: Vec<String>) -> glib::ExitCode {
     });
     application.connect_shutdown(|_| APP.with(|app| {
         if let Some(app) = app.borrow_mut().take() {
-            app.dictation.cancel();
+            app.dictation.shut_down();
         }
     }));
     application.run_with_args(&arguments)

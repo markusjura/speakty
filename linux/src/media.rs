@@ -7,29 +7,40 @@ use gtk::glib::Variant;
 
 const PLAYER: &str = "org.mpris.MediaPlayer2.Player";
 
+enum Work {
+    Pause,
+    Resume,
+    /// Answers once everything sent before is done.
+    Flush(std::sync::mpsc::SyncSender<()>),
+}
+
 /// Pause and resume run in order on a thread of their own, since asking every player takes a
 /// moment, so a resume always follows the pause it undoes.
 pub struct MediaPauser {
-    commands: std::sync::mpsc::Sender<bool>,
+    commands: std::sync::mpsc::Sender<Work>,
 }
 
 impl MediaPauser {
     pub fn new() -> Self {
-        let (commands, received) = std::sync::mpsc::channel::<bool>();
+        let (commands, received) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             // The players Speakty paused, to play again.
             let mut paused: Vec<String> = Vec::new();
-            for pauses in received {
-                if pauses {
-                    let players = pause_playing();
-                    if !players.is_empty() {
-                        log::info!("Paused {}", players.join(", "));
+            for command in received {
+                match command {
+                    Work::Pause => {
+                        let players = pause_playing();
+                        if !players.is_empty() {
+                            log::info!("Paused {}", players.join(", "));
+                        }
+                        paused.extend(players);
                     }
-                    paused.extend(players);
-                } else {
-                    for player in paused.drain(..) {
-                        call(&player, "Play");
+                    Work::Resume => {
+                        for player in paused.drain(..) {
+                            call(&player, "Play");
+                        }
                     }
+                    Work::Flush(done) => drop(done.send(())),
                 }
             }
         });
@@ -37,11 +48,19 @@ impl MediaPauser {
     }
 
     pub fn pause(&self) {
-        let _ = self.commands.send(true);
+        let _ = self.commands.send(Work::Pause);
     }
 
     pub fn resume(&self) {
-        let _ = self.commands.send(false);
+        let _ = self.commands.send(Work::Resume);
+    }
+
+    /// Waits up to two seconds for the work sent so far, so quitting never leaves media paused.
+    pub fn flush(&self) {
+        let (done, finished) = std::sync::mpsc::sync_channel(1);
+        if self.commands.send(Work::Flush(done)).is_ok() {
+            let _ = finished.recv_timeout(std::time::Duration::from_secs(2));
+        }
     }
 }
 

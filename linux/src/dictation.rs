@@ -223,7 +223,13 @@ impl DictationController {
         }
     }
 
-    /// Also runs on quit, so a recording never leaves the output muted or media paused.
+    /// Cancels a dictation and waits until the output and media are back, before Speakty exits.
+    pub fn shut_down(&self) {
+        self.cancel();
+        self.muter.flush();
+        self.media.flush();
+    }
+
     pub fn cancel(&self) {
         if self.phase.get() == Phase::Idle {
             return;

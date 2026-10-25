@@ -5,30 +5,49 @@
 use crate::identity;
 use std::process::Command;
 
+enum Work {
+    Mute,
+    Restore,
+    /// Answers once everything sent before is done.
+    Flush(std::sync::mpsc::SyncSender<()>),
+}
+
 /// Mute and restore run in order on a thread of their own, as wpctl takes a moment, so a restore
 /// always follows the mute it undoes.
 pub struct OutputMuter {
-    commands: std::sync::mpsc::Sender<bool>,
+    commands: std::sync::mpsc::Sender<Work>,
 }
 
 impl OutputMuter {
     pub fn new() -> Self {
-        let (commands, received) = std::sync::mpsc::channel::<bool>();
+        let (commands, received) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             restore();
-            for mutes in received {
-                if mutes { mute() } else { restore() }
+            for command in received {
+                match command {
+                    Work::Mute => mute(),
+                    Work::Restore => restore(),
+                    Work::Flush(done) => drop(done.send(())),
+                }
             }
         });
         Self { commands }
     }
 
     pub fn mute(&self) {
-        let _ = self.commands.send(true);
+        let _ = self.commands.send(Work::Mute);
     }
 
     pub fn restore(&self) {
-        let _ = self.commands.send(false);
+        let _ = self.commands.send(Work::Restore);
+    }
+
+    /// Waits up to two seconds for the work sent so far, so quitting never leaves the output muted.
+    pub fn flush(&self) {
+        let (done, finished) = std::sync::mpsc::sync_channel(1);
+        if self.commands.send(Work::Flush(done)).is_ok() {
+            let _ = finished.recv_timeout(std::time::Duration::from_secs(2));
+        }
     }
 }
 
