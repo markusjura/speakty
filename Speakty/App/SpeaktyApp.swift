@@ -172,10 +172,10 @@ final class SpeaktyApplicationDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Escape cancels only while a dictation runs, and the vocabulary follows Settings.
+    /// Cancel and Send work only while a dictation runs, and the vocabulary follows Settings.
     private func observeDictation() {
         withObservationTracking {
-            hotkeys.watchesEscape = dictation.phase != .idle
+            hotkeys.isDictating = dictation.phase != .idle
             transcriber.useVocabulary(preferences.transcript.vocabulary)
         } onChange: { [weak self] in
             Task { @MainActor in self?.observeDictation() }

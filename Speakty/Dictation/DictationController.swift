@@ -4,8 +4,8 @@ import Observation
 import os
 
 /// One dictation at a time: record while the shortcut is held, or from a tap of the shortcut, or
-/// Start Dictation in the menu, until the next tap or Stop, then transcribe, post-process, and
-/// paste. Escape cancels at any point.
+/// Start Dictation in the menu, until the next press or Stop, then transcribe, post-process, and
+/// paste. Cancel discards it at any point, and Send presses Return after the paste.
 @MainActor @Observable
 final class DictationController {
     enum Phase: Equatable {
@@ -16,13 +16,10 @@ final class DictationController {
 
     /// How the shortcut ends a recording.
     enum Trigger: Equatable {
-        /// Held since the instant; the release ends it, unless that makes it a tap.
+        /// Down since this instant. The release ends the recording or, as a tap, latches it.
         case held(since: ContinuousClock.Instant)
-        /// Started by a tap or the menu; the next press of the shortcut ends it.
+        /// Runs until the next press of the shortcut, or Stop Dictation in the menu.
         case latched
-        /// Pressed again to end it. The release ends it, and typing a shortcut such as ⌘C instead
-        /// cancels it, as during a hold.
-        case ending
     }
 
     private(set) var phase = Phase.idle
@@ -32,13 +29,16 @@ final class DictationController {
     @ObservationIgnored private let permissions: Permissions
     @ObservationIgnored private let transcriber: Transcriber
     @ObservationIgnored private let muter = OutputMuter()
+    @ObservationIgnored private let media = MediaPauser()
     @ObservationIgnored private let openPermissions: @MainActor () -> Void
     @ObservationIgnored private var work: Task<Void, Never>?
     /// Counts recordings, so a microphone that starts late can tell whether its recording still runs.
     @ObservationIgnored private var recordings = 0
+    /// Set by Send, which presses Return once the text is pasted.
+    @ObservationIgnored private var sends = false
     @ObservationIgnored private let logger = Logger(subsystem: "local.markus.Speakty", category: "Dictation")
 
-    /// A release sooner than this after the press is a tap, which keeps recording until the next one.
+    /// In Hold or tap, a release sooner than this after the press is a tap.
     private static let longestTap = Duration.milliseconds(250)
     /// Recording continues briefly after release, so a word finished while letting go isn't cut.
     private static let releaseTail = Duration.milliseconds(200)
@@ -59,10 +59,13 @@ final class DictationController {
     var canStart: Bool { phase == .idle && transcriber.state == .ready }
 
     func handle(_ event: HotkeyMonitor.Event) {
-        switch Self.action(for: event, in: phase, at: .now) {
+        switch Self.action(for: event, in: phase, mode: preferences.recording.shortcutMode, at: .now) {
         case .start(let trigger): start(trigger)
-        case .become(let trigger): phase = .recording(trigger)
+        case .latch: phase = .recording(.latched)
         case .stop: stop()
+        case .send:
+            sends = true
+            stop()
         case .cancel: cancel()
         case .ignore: break
         }
@@ -71,20 +74,27 @@ final class DictationController {
     /// What a shortcut event does.
     enum Action: Equatable {
         case start(Trigger)
-        /// Keeps recording, to be ended differently.
-        case become(Trigger)
-        case stop, cancel, ignore
+        /// Keeps recording until the next press.
+        case latch
+        case stop, send, cancel, ignore
     }
 
-    /// The hold-or-tap rules: a hold records until its release, and a tap until the next tap.
-    static func action(for event: HotkeyMonitor.Event, in phase: Phase, at now: ContinuousClock.Instant) -> Action {
+    /// Every press starts as a hold, and the mode decides what its release does. Another key typed
+    /// with a held modifier shortcut, as in Right ⌘C, means the press was a shortcut, not dictation.
+    static func action(for event: HotkeyMonitor.Event, in phase: Phase, mode: ShortcutMode,
+                       at now: ContinuousClock.Instant) -> Action {
         switch (event, phase) {
         case (.pressed, .idle): .start(.held(since: now))
-        case (.pressed, .recording(.latched)): .become(.ending)
-        case (.released, .recording(.held(let since))): since.duration(to: now) < longestTap ? .become(.latched) : .stop
-        case (.released, .recording(.ending)): .stop
-        case (.interrupted, .recording(.held)), (.interrupted, .recording(.ending)): .cancel
-        case (.escape, .recording), (.escape, .transcribing): .cancel
+        case (.released, .recording(.held(let since))):
+            switch mode {
+            case .hold: .stop
+            case .tap: .latch
+            case .holdOrTap: since.duration(to: now) < longestTap ? .latch : .stop
+            }
+        case (.pressed, .recording(.latched)): .stop
+        case (.interrupted, .recording(.held)): .cancel
+        case (.cancel, .recording), (.cancel, .transcribing): .cancel
+        case (.send, .recording), (.send, .transcribing): .send
         default: .ignore
         }
     }
@@ -117,6 +127,7 @@ final class DictationController {
             microphoneStarted(result)
         }
         phase = .recording(trigger)
+        sends = false
     }
 
     /// The display shows at once; the start sound waits for the microphone, which can take half a
@@ -126,6 +137,7 @@ final class DictationController {
         case .success:
             guard isRecording else { return }
             play(.start)
+            if preferences.recording.pausesMedia { media.pause() }
             if preferences.recording.mutesAudio {
                 // After the start sound, which muting would cut off.
                 work = Task {
@@ -134,7 +146,7 @@ final class DictationController {
                 }
             }
         case .failure(let error):
-            // Unless Escape ended the recording meanwhile.
+            // Unless Cancel ended the recording meanwhile.
             guard isRecording else { return }
             NSSound.beep()
             logger.error("Recording didn't start: \(error.localizedDescription, privacy: .public)")
@@ -154,6 +166,7 @@ final class DictationController {
             guard !Task.isCancelled else { return }
             // Not before the tail ends, so resumed music doesn't end up in the recording.
             muter.restore()
+            media.resume()
             let speech = Transcript.speech(in: samples)
             defer { if !Task.isCancelled { phase = .idle } }
             guard !speech.isEmpty else { return logger.info("Heard no speech") }
@@ -166,7 +179,7 @@ final class DictationController {
                 if transcript.matchesSurroundingText {
                     text = Transcript.fitting(text, after: TextInserter.textBeforeCaret(), keepingCaseOf: transcript.vocabulary)
                 }
-                TextInserter.insert(text)
+                TextInserter.insert(text, pressingReturn: sends)
                 play(.done)
             } catch {
                 NSSound.beep()
@@ -175,13 +188,14 @@ final class DictationController {
         }
     }
 
-    /// Also runs on quit, so a recording never leaves the output muted.
+    /// Also runs on quit, so a recording never leaves the output muted or media paused.
     func cancel() {
         guard phase != .idle else { return }
         work?.cancel()
         work = nil
         recorder.cancel()
         muter.restore()
+        media.resume()
         phase = .idle
         logger.info("Cancelled")
     }
@@ -191,7 +205,7 @@ final class DictationController {
     }
 
     private func play(_ sound: Sound) {
-        guard preferences.general.playsSounds, let player = NSSound(named: sound.rawValue) else { return }
+        guard preferences.recording.playsSounds, let player = NSSound(named: sound.rawValue) else { return }
         player.volume = 0.35
         player.play()
     }

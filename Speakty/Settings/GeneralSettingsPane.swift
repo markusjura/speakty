@@ -32,9 +32,6 @@ struct GeneralSettingsPane: View {
                     }
                 }
             }
-            Section("Sounds") {
-                Toggle("Play sounds", isOn: $preferences.general.playsSounds)
-            }
             UpdateSettingsSection(updater: updater)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in

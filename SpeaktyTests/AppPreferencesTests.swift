@@ -25,6 +25,17 @@ final class AppPreferencesTests: XCTestCase {
         XCTAssertEqual(recording.position, .top, "The rest of the stored section survives")
     }
 
+    func testATurnedOffSendKeyStaysOffAfterRelaunch() {
+        AppPreferences(defaults: defaults).recording.sendShortcut = nil
+        XCTAssertNil(AppPreferences(defaults: defaults).recording.sendShortcut)
+    }
+
+    func testTwoCommandsCantShareAShortcut() {
+        let preferences = AppPreferences(defaults: defaults)
+        preferences.recording.sendShortcut = preferences.recording.cancelShortcut
+        XCTAssertEqual(preferences.recording.sendShortcut, RecordingPreferences().sendShortcut)
+    }
+
     func testAnInvalidReplacementIsRejected() {
         let preferences = AppPreferences(defaults: defaults)
         preferences.transcript.replacements = [Replacement(find: "(", replacement: "", isPattern: true)]

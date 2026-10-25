@@ -3,7 +3,7 @@ import Carbon.HIToolbox
 import Observation
 import os
 
-/// Watches the dictation shortcut, and Escape while a dictation runs. A modifier key such as
+/// Watches the dictation shortcut, and Cancel and Send while a dictation runs. A modifier key such as
 /// Right ⌘ comes from a session event tap, which needs Accessibility; a key with modifiers comes
 /// from `RegisterEventHotKey`, which needs no permission. Both follow the shortcut in preferences,
 /// the Accessibility grant, and `isPaused`, which the shortcut recorder sets while it records.
@@ -15,18 +15,16 @@ final class HotkeyMonitor {
         case released
         /// Another key went down while a modifier shortcut was held, as in ⌘C with Right ⌘.
         case interrupted
-        /// Escape while `watchesEscape`.
-        case escape
+        /// The Cancel or Send shortcut, while `isDictating`.
+        case cancel, send
     }
 
     /// Set while Settings records a new shortcut, so the current one doesn't fire.
     var isPaused = false
     /// True when the key shortcut couldn't be registered, usually because another app has it.
     private(set) var isTaken = false
-    /// Escape is a global hotkey only while a dictation runs, so it stays free for other apps.
-    var watchesEscape = false {
-        didSet { if watchesEscape != oldValue { registerEscape(watchesEscape) } }
-    }
+    /// Cancel and Send are hot keys only while a dictation runs, so their keys stay free for other apps.
+    var isDictating = false
 
     @ObservationIgnored private let preferences: AppPreferences
     @ObservationIgnored private let permissions: Permissions
@@ -41,9 +39,19 @@ final class HotkeyMonitor {
 
     private nonisolated static let signature: OSType = 0x5350_4B54 // "SPKT"
     private nonisolated static let shortcutID: UInt32 = 1
-    private nonisolated static let escapeID: UInt32 = 2
-    /// Escape with the key shortcut's modifiers, which are still down while it's held.
-    private nonisolated static let heldEscapeID: UInt32 = 3
+    /// Cancel or Send's hot keys. Each key gets a second hot key with the dictation shortcut's
+    /// modifiers added, which are still down while the shortcut is held.
+    private struct DictationKey {
+        let id: UInt32
+        let heldID: UInt32
+        let command: DictationCommand
+        let event: Event
+    }
+
+    private static let dictationKeys = [
+        DictationKey(id: 2, heldID: 3, command: .cancel, event: .cancel),
+        DictationKey(id: 4, heldID: 5, command: .send, event: .send),
+    ]
 
     init(preferences: AppPreferences, permissions: Permissions, handler: @escaping @MainActor (Event) -> Void) {
         self.preferences = preferences
@@ -54,6 +62,7 @@ final class HotkeyMonitor {
     func start() {
         installHotKeyHandler()
         synchronize()
+        synchronizeDictationKeys()
     }
 
     /// Re-registers whenever the shortcut, the grant, or `isPaused` changes.
@@ -130,11 +139,24 @@ final class HotkeyMonitor {
             isHeld = isDown
             handler(isDown ? .pressed : .released)
         case .keyDown:
-            guard isHeld else { return }
+            guard isHeld, !isDictationKey(event) else { return }
             isHeld = false
             handler(.interrupted)
         default:
             break
+        }
+    }
+
+    /// Cancel and Send act on the dictation, so unlike other keys they don't interrupt a held shortcut.
+    /// Their hot keys handle them.
+    private func isDictationKey(_ event: CGEvent) -> Bool {
+        guard isDictating else { return false }
+        let code = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+        let pressed = Shortcut.Modifiers(flags: NSEvent.ModifierFlags(rawValue: UInt(event.flags.rawValue)))
+        let recording = preferences.recording
+        return Self.dictationKeys.contains { key in
+            guard case .key(let keyCode, let modifiers) = recording[key.command] else { return false }
+            return keyCode == code && (pressed == modifiers || pressed == modifiers.union(recording.shortcut.modifiers))
         }
     }
 
@@ -166,19 +188,35 @@ final class HotkeyMonitor {
             guard isPress != isHeld else { return }
             isHeld = isPress
             handler(isPress ? .pressed : .released)
-        case Self.escapeID, Self.heldEscapeID:
-            if isPress { handler(.escape) }
-        default: break
+        default:
+            guard isPress, let key = Self.dictationKeys.first(where: { $0.id == id || $0.heldID == id }) else { return }
+            handler(key.event)
         }
     }
 
-    private func registerEscape(_ isOn: Bool) {
-        unregister(Self.escapeID)
-        unregister(Self.heldEscapeID)
+    /// Re-registers Cancel and Send whenever a dictation starts or ends, their shortcuts change, or
+    /// `isPaused` changes. Separate from `synchronize()`, which would end a held shortcut.
+    private func synchronizeDictationKeys() {
+        let (recording, isOn) = withObservationTracking {
+            (preferences.recording, isDictating && !isPaused)
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.synchronizeDictationKeys() }
+        }
+        for key in Self.dictationKeys { unregister(key.id); unregister(key.heldID) }
         guard isOn else { return }
-        register(Self.escapeID, keyCode: UInt32(kVK_Escape), modifiers: 0)
-        if case .key(_, let modifiers) = preferences.recording.shortcut, !modifiers.isEmpty {
-            register(Self.heldEscapeID, keyCode: UInt32(kVK_Escape), modifiers: modifiers.carbonFlags)
+        let bindings = Self.dictationKeys.compactMap { key in recording[key.command].map { (key: key, shortcut: $0) } }
+        for (key, shortcut) in bindings {
+            guard case .key(let code, let modifiers) = shortcut else { continue }
+            register(key.id, keyCode: UInt32(code), modifiers: modifiers.carbonFlags)
+        }
+        // An app can register a combination only once, so a held variant that's already taken, as ⌘Esc
+        // for Cancel when Send is ⌘Esc, leaves it to the command that has it. Cancel's variant goes first.
+        var taken = Set(bindings.map(\.shortcut))
+        for (key, shortcut) in bindings {
+            guard case .key(let code, let modifiers) = shortcut else { continue }
+            let heldModifiers = modifiers.union(recording.shortcut.modifiers)
+            guard taken.insert(.key(code, heldModifiers)).inserted else { continue }
+            register(key.heldID, keyCode: UInt32(code), modifiers: heldModifiers.carbonFlags)
         }
     }
 
