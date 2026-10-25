@@ -26,6 +26,22 @@ struct RecordingSettingsPane: View {
                     Text("Top").tag(OverlayPosition.top)
                 }
                 .pickerStyle(.segmented)
+                LabeledContent("Distance from edge") {
+                    HStack {
+                        // Rounded instead of stepped, since a step draws a tick mark for every value.
+                        Slider(value: Binding(get: { preferences.recording.edgeDistance },
+                                              set: { preferences.recording.edgeDistance = $0.rounded() }),
+                               in: RecordingPreferences.edgeDistanceRange) {
+                            Text("Distance from edge")
+                        }
+                        .labelsHidden()
+                        .frame(width: 160)
+                        Text("\(Int(preferences.recording.edgeDistance)) pt")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .frame(width: 44, alignment: .trailing)
+                    }
+                }
             }
             Section("Microphone") {
                 Picker("Input", selection: $preferences.recording.microphoneUID) {
