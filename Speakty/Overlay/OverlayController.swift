@@ -39,7 +39,8 @@ final class OverlayController {
             model.meter.start()
             show()
         case .transcribing:
-            model.isTranscribing = true
+            // Only this swap animates, so the next dictation opens on its bars without a spinner fading out.
+            withAnimation(OverlayView.stateChange) { model.isTranscribing = true }
             model.meter.stop()
         }
     }
