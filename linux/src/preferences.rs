@@ -147,8 +147,9 @@ impl Transcript {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Debug {
-    /// A WAV file replayed in real time instead of the microphone, so checks run without speaking.
-    pub test_audio_file: Option<String>,
+    /// A PipeWire source to record from instead of the chosen microphone, such as the virtual one
+    /// scripts/dictate.sh plays recordings into. Read at the start of every dictation.
+    pub microphone: Option<String>,
     /// An update manifest to check instead of GitHub, as a URL or a path. Speakty Dev updates only from it.
     #[serde(rename = "updateFeedURL")]
     pub update_feed_url: Option<String>,

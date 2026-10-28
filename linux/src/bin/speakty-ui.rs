@@ -17,6 +17,7 @@ const USAGE: &str = "Usage: speakty-ui <command>
   workspace [number]     Print the focused workspace, or focus another
   clipboard              Print the clipboard's text
   duration <file.wav>    Print a recording's length in seconds
+  channels <file.wav>    Print a recording's number of channels
 Keys are evdev names such as KEY_ESC, or rsuper, lsuper, rctrl, esc.";
 
 fn key(name: &str) -> KeyCode {
@@ -209,6 +210,10 @@ fn main() {
         Some("duration") => {
             let reader = hound::WavReader::open(argument(1)).unwrap_or_else(|e| fail(&e.to_string()));
             println!("{:.1}", reader.duration() as f64 / reader.spec().sample_rate as f64);
+        }
+        Some("channels") => {
+            let reader = hound::WavReader::open(argument(1)).unwrap_or_else(|e| fail(&e.to_string()));
+            println!("{}", reader.spec().channels);
         }
         _ => fail(USAGE),
     }

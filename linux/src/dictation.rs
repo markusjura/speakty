@@ -129,7 +129,7 @@ impl DictationController {
         let preferences = self.preferences.get();
         self.recordings.set(self.recordings.get() + 1);
         let recording = self.recordings.get();
-        let started = self.recorder.start(preferences.recording.microphone.clone(), Store::stored_debug().test_audio_file);
+        let started = self.recorder.start(Store::stored_debug().microphone.or(preferences.recording.microphone.clone()));
         self.phase.set(Phase::Recording(trigger));
         let this = self.clone();
         glib::spawn_future_local(async move {

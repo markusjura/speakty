@@ -10,7 +10,7 @@
 use crate::transcript::SAMPLE_RATE;
 use pipewire as pw;
 use pw::spa;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
@@ -44,7 +44,7 @@ impl Capture {
 }
 
 enum Command {
-    Start { target: Option<String>, test_audio: Option<String>, started: async_channel::Sender<Result<(), String>> },
+    Start { target: Option<String>, started: async_channel::Sender<Result<(), String>> },
     Stop { samples: async_channel::Sender<Vec<f32>> },
     Cancel,
 }
@@ -84,11 +84,10 @@ impl Recorder {
     }
 
     /// Starts recording from the source named `target`, or the default input when it's None or gone.
-    /// Speakty Dev replays `test_audio` instead when it's set. The result arrives once the microphone
-    /// is live, or with the error that kept it from starting.
-    pub fn start(&self, target: Option<String>, test_audio: Option<String>) -> async_channel::Receiver<Result<(), String>> {
+    /// The result arrives once the microphone is live, or with the error that kept it from starting.
+    pub fn start(&self, target: Option<String>) -> async_channel::Receiver<Result<(), String>> {
         let (started, result) = async_channel::bounded(1);
-        if self.commands.send(Command::Start { target, test_audio, started }).is_err() {
+        if self.commands.send(Command::Start { target, started }).is_err() {
             log::error!("PipeWire isn't running");
         }
         result
@@ -110,10 +109,38 @@ impl Recorder {
 }
 
 /// The recording in progress, kept alive on the PipeWire thread.
-enum Active {
-    Stream { stream: pw::stream::StreamRc, _listener: pw::stream::StreamListener<Format> },
-    /// Replays a test file with a timer, as the microphone would deliver it.
-    Replay { _timer: pw::loop_::TimerSource<'static> },
+struct Active {
+    stream: pw::stream::StreamRc,
+    _listener: pw::stream::StreamListener<Format>,
+}
+
+/// A node a recording can come from.
+struct Node {
+    id: u32,
+    source: Source,
+    /// Whether Settings offers it as a microphone.
+    offered: bool,
+    channels: Rc<Cell<Option<u32>>>,
+    _proxy: pw::node::Node,
+    _listener: pw::node::NodeListener,
+}
+
+/// The channels of the source PipeWire will record: the target while it's there, else the default input.
+fn source_channels(nodes: &[Node], target: Option<&str>, default: Option<&str>) -> Option<u32> {
+    let find = |name: &str| nodes.iter().find(|node| node.source.name == name);
+    target.and_then(find).or_else(|| default.and_then(find))?.channels.get()
+}
+
+fn offered(nodes: &[Node]) -> Vec<Source> {
+    nodes.iter().filter(|node| node.offered).map(|node| node.source.clone()).collect()
+}
+
+/// A node's channels, from its channel count, or else its positions, such as "FL,FR" or "[ AUX0 AUX1 ]".
+fn channel_count(channels: Option<&str>, positions: Option<&str>) -> Option<u32> {
+    channels.and_then(|channels| channels.parse().ok()).or_else(|| {
+        let count = positions?.split(|c: char| c == ',' || c == '[' || c == ']' || c.is_whitespace()).filter(|p| !p.is_empty()).count();
+        (count > 0).then_some(count as u32)
+    })
 }
 
 #[derive(Default)]
@@ -124,45 +151,74 @@ struct Format {
 
 fn run(receiver: pw::channel::Receiver<Command>, capture: Arc<Mutex<Capture>>, sources: Arc<Mutex<Vec<Source>>>) -> Result<(), pw::Error> {
     pw::init();
-    // Leaked, so the loop, context, and core live as long as the thread, which is as long as Speakty.
-    let mainloop: &'static pw::main_loop::MainLoopRc = Box::leak(Box::new(pw::main_loop::MainLoopRc::new(None)?));
-    let context = pw::context::ContextRc::new(mainloop, None)?;
+    let mainloop = pw::main_loop::MainLoopRc::new(None)?;
+    let context = pw::context::ContextRc::new(&mainloop, None)?;
     let core = context.connect_rc(None)?;
 
     let registry = core.get_registry_rc()?;
-    let nodes: Rc<RefCell<Vec<(u32, Source)>>> = Rc::default();
+    let nodes: Rc<RefCell<Vec<Node>>> = Rc::default();
+    // The default input's name, which the "default" metadata object carries as JSON.
+    let default_source: Rc<RefCell<Option<String>>> = Rc::default();
+    let metadata: Rc<RefCell<Option<(pw::metadata::Metadata, pw::metadata::MetadataListener)>>> = Rc::default();
     let (added, removed) = ((nodes.clone(), sources.clone()), (nodes.clone(), sources.clone()));
+    let (bound, default) = (registry.clone(), default_source.clone());
     let _registry_listener = registry
         .add_listener_local()
         .global(move |global| {
             let Some(props) = global.props else { return };
-            if props.get("media.class") != Some("Audio/Source") {
+            if global.type_ == pw::types::ObjectType::Metadata && props.get("metadata.name") == Some("default") {
+                let Ok(proxy) = bound.bind::<pw::metadata::Metadata, _>(global) else { return };
+                let default = default.clone();
+                let listener = proxy
+                    .add_listener_local()
+                    .property(move |_, key, _, value| {
+                        if key.is_none_or(|key| key == "default.audio.source") {
+                            let value: Option<serde_json::Value> = value.and_then(|value| serde_json::from_str(value).ok());
+                            *default.borrow_mut() = value.and_then(|value| value["name"].as_str().map(str::to_string));
+                        }
+                        0
+                    })
+                    .register();
+                *metadata.borrow_mut() = Some((proxy, listener));
+                return;
+            }
+            // Settings offers microphones. A recording can also target a virtual source or a
+            // duplex node, such as the one scripts/dictate.sh plays into.
+            let class = props.get("media.class").unwrap_or_default();
+            if !matches!(class, "Audio/Source" | "Audio/Source/Virtual" | "Audio/Duplex") {
                 return;
             }
             let name = props.get("node.name").unwrap_or_default().to_string();
             let description = props.get("node.description").or(props.get("node.nick")).unwrap_or(&name).to_string();
-            added.0.borrow_mut().push((global.id, Source { name, description }));
-            *added.1.lock().unwrap() = added.0.borrow().iter().map(|(_, s)| s.clone()).collect();
+            // The channels come with the node's info, which only a proxy receives.
+            let Ok(proxy) = bound.bind::<pw::node::Node, _>(global) else { return };
+            let channels: Rc<Cell<Option<u32>>> = Rc::default();
+            let info_channels = channels.clone();
+            let listener = proxy
+                .add_listener_local()
+                .info(move |info| {
+                    if let Some(count) = info.props().and_then(|props| channel_count(props.get("audio.channels"), props.get("audio.position"))) {
+                        info_channels.set(Some(count));
+                    }
+                })
+                .register();
+            let source = Source { name, description };
+            added.0.borrow_mut().push(Node { id: global.id, source, offered: class == "Audio/Source", channels, _proxy: proxy, _listener: listener });
+            *added.1.lock().unwrap() = offered(&added.0.borrow());
         })
         .global_remove(move |id| {
-            removed.0.borrow_mut().retain(|(node, _)| *node != id);
-            *removed.1.lock().unwrap() = removed.0.borrow().iter().map(|(_, s)| s.clone()).collect();
+            removed.0.borrow_mut().retain(|node| node.id != id);
+            *removed.1.lock().unwrap() = offered(&removed.0.borrow());
         })
         .register();
 
     let active: Rc<RefCell<Option<Active>>> = Rc::default();
     let _receiver = receiver.attach(mainloop.loop_(), move |command| match command {
-        Command::Start { target, test_audio, started } => {
-            active.borrow_mut().take();
+        Command::Start { target, started } => {
+            stop(&active);
             *capture.lock().unwrap() = Capture::default();
-            let result = match test_audio {
-                Some(path) => replay(mainloop, &path, capture.clone()).map(|timer| {
-                    let _ = started.try_send(Ok(()));
-                    Active::Replay { _timer: timer }
-                }),
-                None => open_stream(&core, target, capture.clone(), started.clone()),
-            };
-            match result {
+            let channels = source_channels(&nodes.borrow(), target.as_deref(), default_source.borrow().as_deref());
+            match open_stream(&core, target, channels, capture.clone(), started.clone()) {
                 Ok(recording) => *active.borrow_mut() = Some(recording),
                 Err(error) => {
                     let _ = started.try_send(Err(error));
@@ -183,14 +239,17 @@ fn run(receiver: pw::channel::Receiver<Command>, capture: Arc<Mutex<Capture>>, s
 }
 
 fn stop(active: &RefCell<Option<Active>>) {
-    if let Some(Active::Stream { stream, .. }) = active.borrow_mut().take() {
+    if let Some(Active { stream, .. }) = active.borrow_mut().take() {
         let _ = stream.disconnect();
     }
 }
 
+/// Records from `target` with the source's `channels`, so mono() picks the voice from them. With
+/// the count unknown, PipeWire mixes the source to stereo.
 fn open_stream(
     core: &pw::core::CoreRc,
     target: Option<String>,
+    channels: Option<u32>,
     capture: Arc<Mutex<Capture>>,
     started: async_channel::Sender<Result<(), String>>,
 ) -> Result<Active, String> {
@@ -201,6 +260,10 @@ fn open_stream(
         *pw::keys::APP_NAME => crate::identity::NAME,
         *pw::keys::NODE_NAME => "speakty",
     };
+    if channels.is_some() {
+        // Links the source's channels one to one, in order, rather than mixing them.
+        props.insert(*pw::keys::STREAM_DONT_REMIX, "true");
+    }
     if let Some(target) = target {
         // A source that's gone falls back to the default input.
         props.insert("target.object", target);
@@ -248,10 +311,13 @@ fn open_stream(
         .register()
         .map_err(|e| e.to_string())?;
 
-    // F32 at 16 kHz, which PipeWire converts to. The channels stay the device's, so mono() can pick them.
+    // F32 at 16 kHz, which PipeWire converts to.
     let mut info = spa::param::audio::AudioInfoRaw::new();
     info.set_format(spa::param::audio::AudioFormat::F32LE);
     info.set_rate(SAMPLE_RATE as u32);
+    if let Some(channels) = channels {
+        info.set_channels(channels);
+    }
     let object = spa::pod::Object {
         type_: spa::utils::SpaTypes::ObjectParamFormat.as_raw(),
         id: spa::param::ParamType::EnumFormat.as_raw(),
@@ -270,7 +336,7 @@ fn open_stream(
             &mut params,
         )
         .map_err(|e| e.to_string())?;
-    Ok(Active::Stream { stream, _listener: listener })
+    Ok(Active { stream, _listener: listener })
 }
 
 /// Mixes interleaved frames to mono. Mono and stereo devices mix every channel. Interfaces with
@@ -284,46 +350,15 @@ fn mono(samples: &[f32], channels: usize) -> Vec<f32> {
     }
 }
 
-/// Feeds a WAV file in 50 ms chunks, in real time, so the level moves and a short hold records only the start.
-fn replay(mainloop: &'static pw::main_loop::MainLoopRc, path: &str, capture: Arc<Mutex<Capture>>) -> Result<pw::loop_::TimerSource<'static>, String> {
-    let samples = read_wav(path)?;
-    let chunks: RefCell<std::vec::IntoIter<Vec<f32>>> =
-        RefCell::new(samples.chunks(SAMPLE_RATE / 20).map(<[f32]>::to_vec).collect::<Vec<_>>().into_iter());
-    let timer = mainloop.loop_().add_timer(move |_| {
-        if let Some(chunk) = chunks.borrow_mut().next() {
-            capture.lock().unwrap().append(&chunk);
-        }
-    });
-    let period = std::time::Duration::from_millis(50);
-    timer.update_timer(Some(period), Some(period)).into_result().map_err(|e| e.to_string())?;
-    log::info!("Replaying {path}");
-    Ok(timer)
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-/// 16 kHz samples of a WAV file, mixed to mono.
-pub fn read_wav(path: &str) -> Result<Vec<f32>, String> {
-    let mut reader = hound::WavReader::open(path).map_err(|e| format!("{path}: {e}"))?;
-    let spec = reader.spec();
-    let samples: Vec<f32> = match spec.sample_format {
-        hound::SampleFormat::Float => reader.samples::<f32>().filter_map(Result::ok).collect(),
-        hound::SampleFormat::Int => {
-            let scale = (1u64 << (spec.bits_per_sample - 1)) as f32;
-            reader.samples::<i32>().filter_map(Result::ok).map(|s| s as f32 / scale).collect()
-        }
-    };
-    let mono = mono(&samples, spec.channels as usize);
-    if spec.sample_rate as usize == SAMPLE_RATE {
-        return Ok(mono);
+    #[test]
+    fn counts_channels_from_either_property() {
+        assert_eq!(channel_count(Some("4"), Some("FL,FR")), Some(4));
+        assert_eq!(channel_count(None, Some("FL,FR")), Some(2));
+        assert_eq!(channel_count(None, Some("[ AUX0 AUX1 AUX2 AUX3 ]")), Some(4));
+        assert_eq!(channel_count(None, None), None);
     }
-    // Linear resampling is plenty for test recordings.
-    let ratio = spec.sample_rate as f64 / SAMPLE_RATE as f64;
-    let count = (mono.len() as f64 / ratio) as usize;
-    Ok((0..count)
-        .map(|i| {
-            let position = i as f64 * ratio;
-            let (index, fraction) = (position as usize, (position.fract()) as f32);
-            let next = mono.get(index + 1).copied().unwrap_or(mono[index]);
-            mono[index] * (1.0 - fraction) + next * fraction
-        })
-        .collect())
 }
