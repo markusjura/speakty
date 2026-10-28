@@ -32,7 +32,13 @@ Categories=Utility;
 StartupNotify=false
 DESKTOP
     systemctl --user reset-failed speakty-dev.service 2>/dev/null || true
-    systemd-run --user --quiet --unit=speakty-dev --collect "$dev_home/speakty"
+    # The session's variables, for sessions that keep them out of the user manager, as the headless
+    # test session does. systemd-run passes on a variable named without a value.
+    session=()
+    for name in WAYLAND_DISPLAY DISPLAY HYPRLAND_INSTANCE_SIGNATURE SWAYSOCK XDG_CURRENT_DESKTOP; do
+      [[ -n ${!name:-} ]] && session+=(--setenv="$name")
+    done
+    systemd-run --user --quiet --unit=speakty-dev --collect "${session[@]}" "$dev_home/speakty"
     version=$("$dev_home/speakty" version)
     if git rev-parse --git-dir >/dev/null 2>&1; then version+=" @ $(git rev-parse --short HEAD)"; fi
     echo "Started $version as speakty-dev.service"
