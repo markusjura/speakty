@@ -1,6 +1,7 @@
 //! Drives Speakty for checks and reports the result as text, as Scripts/ui/speakty-ui does on macOS.
 //! Run without arguments for usage. Needs the graphical session's environment, which
-//! linux/scripts/remote.sh and systemd-run --user provide over SSH.
+//! linux/scripts/remote.sh and systemd-run --user provide over SSH. Commands about windows and
+//! workspaces work on Hyprland and Sway.
 
 use evdev::uinput::VirtualDevice;
 use evdev::{AttributeSet, EventType, InputEvent, KeyCode};
@@ -11,9 +12,12 @@ const USAGE: &str = "Usage: speakty-ui <command>
   hold <key> <seconds>   Hold a key on a virtual keyboard, as a person would, such as hold rsuper 3
   tap <key>              Press and release a key
   pad <seconds>          Open a text window in front, then print what was typed or pasted into it
-  windows                List Speakty's overlay and windows from Hyprland
+  windows                List Speakty's windows, and its overlay on Hyprland, with their geometry
+  front                  Print the focused window's app, and `fullscreen` when it is
+  workspace [number]     Print the focused workspace, or focus another
   clipboard              Print the clipboard's text
   duration <file.wav>    Print a recording's length in seconds
+  channels <file.wav>    Print a recording's number of channels
 Keys are evdev names such as KEY_ESC, or rsuper, lsuper, rctrl, esc.";
 
 fn key(name: &str) -> KeyCode {
@@ -67,9 +71,71 @@ fn pad(seconds: f64) {
     application.run_with_args::<&str>(&[]);
 }
 
-fn hyprctl(what: &str) -> serde_json::Value {
-    let output = std::process::Command::new("hyprctl").args([what, "-j"]).output().unwrap_or_else(|e| fail(&e.to_string()));
-    serde_json::from_slice(&output.stdout).unwrap_or_default()
+/// The compositor's IPC tool and its JSON reply. Hyprland's config here is Lua, so it dispatches
+/// with Lua calls rather than the classic `dispatch workspace 9`.
+enum Compositor {
+    Hyprland,
+    Sway,
+}
+
+impl Compositor {
+    fn current() -> Self {
+        if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some() {
+            Self::Hyprland
+        } else if std::env::var_os("SWAYSOCK").is_some() {
+            Self::Sway
+        } else {
+            fail("This needs Hyprland or Sway.")
+        }
+    }
+
+    fn query(&self, what: &str) -> serde_json::Value {
+        let (tool, arguments) = match self {
+            Self::Hyprland => ("hyprctl", [what, "-j"]),
+            Self::Sway => ("swaymsg", ["-t", what]),
+        };
+        let output = std::process::Command::new(tool).args(arguments).output().unwrap_or_else(|e| fail(&e.to_string()));
+        serde_json::from_slice(&output.stdout).unwrap_or_default()
+    }
+
+    fn focus_workspace(&self, number: u32) {
+        let output = match self {
+            Self::Hyprland => std::process::Command::new("hyprctl").args(["dispatch", &format!("hl.dsp.focus({{ workspace = {number} }})")]).output(),
+            Self::Sway => std::process::Command::new("swaymsg").args(["workspace", "number", &number.to_string()]).output(),
+        };
+        output.unwrap_or_else(|e| fail(&e.to_string()));
+    }
+
+    fn workspace(&self) -> serde_json::Value {
+        match self {
+            Self::Hyprland => self.query("activeworkspace")["id"].clone(),
+            Self::Sway => self.query("get_workspaces").as_array().into_iter().flatten().find(|w| w["focused"] == true).map(|w| w["num"].clone()).unwrap_or_default(),
+        }
+    }
+
+    /// The focused window's app and whether it's fullscreen.
+    fn front(&self) -> Option<(String, bool)> {
+        match self {
+            Self::Hyprland => {
+                let window = self.query("activewindow");
+                Some((window["class"].as_str()?.to_string(), window["fullscreen"].as_u64().is_some_and(|f| f > 0)))
+            }
+            Self::Sway => {
+                let window = sway_windows(&self.query("get_tree")).into_iter().find(|w| w["focused"] == true)?;
+                let app = window["app_id"].as_str().or(window["window_properties"]["class"].as_str()).unwrap_or_default();
+                Some((app.to_string(), window["fullscreen_mode"].as_u64().is_some_and(|f| f > 0)))
+            }
+        }
+    }
+}
+
+/// Every window in a Sway tree: the nodes with a process behind them.
+fn sway_windows(node: &serde_json::Value) -> Vec<serde_json::Value> {
+    let mut windows: Vec<serde_json::Value> = ["nodes", "floating_nodes"].iter().flat_map(|key| node[key].as_array().into_iter().flatten()).flat_map(sway_windows).collect();
+    if node["pid"].is_u64() {
+        windows.push(node.clone());
+    }
+    windows
 }
 
 fn main() {
@@ -93,18 +159,41 @@ fn main() {
             std::thread::sleep(Duration::from_millis(300));
         }
         Some("pad") => pad(argument(1).parse().unwrap_or_else(|_| fail(USAGE))),
-        Some("windows") => {
-            for (output, monitor) in hyprctl("layers").as_object().into_iter().flatten() {
-                for level in monitor["levels"].as_object().into_iter().flat_map(|l| l.values()) {
-                    for layer in level.as_array().into_iter().flatten().filter(|l| l["namespace"] == "speakty") {
-                        println!("overlay on {output}: {}x{} at {},{}", layer["w"], layer["h"], layer["x"], layer["y"]);
+        Some("windows") => match Compositor::current() {
+            compositor @ Compositor::Hyprland => {
+                for (output, monitor) in compositor.query("layers").as_object().into_iter().flatten() {
+                    for level in monitor["levels"].as_object().into_iter().flat_map(|l| l.values()) {
+                        for layer in level.as_array().into_iter().flatten().filter(|l| l["namespace"] == "speakty") {
+                            println!("overlay on {output}: {}x{} at {},{}", layer["w"], layer["h"], layer["x"], layer["y"]);
+                        }
+                    }
+                }
+                for client in compositor.query("clients").as_array().into_iter().flatten() {
+                    if client["class"].as_str().is_some_and(|c| c.starts_with("local.markus.Speakty")) {
+                        println!("window {}: {} at {}", client["title"], client["size"], client["at"]);
                     }
                 }
             }
-            for client in hyprctl("clients").as_array().into_iter().flatten() {
-                if client["class"].as_str().is_some_and(|c| c.starts_with("local.markus.Speakty")) {
-                    println!("window {:?}: {} at {}", client["title"], client["size"], client["at"]);
+            // Sway's IPC doesn't list layer surfaces, so the overlay shows only in screenshots there.
+            compositor @ Compositor::Sway => {
+                for window in sway_windows(&compositor.query("get_tree")) {
+                    if window["app_id"].as_str().is_some_and(|c| c.starts_with("local.markus.Speakty")) {
+                        let rect = &window["rect"];
+                        println!("window {}: [{},{}] at [{},{}]", window["name"], rect["width"], rect["height"], rect["x"], rect["y"]);
+                    }
                 }
+            }
+        },
+        Some("front") => {
+            if let Some((app, fullscreen)) = Compositor::current().front() {
+                println!("{app}{}", if fullscreen { " fullscreen" } else { "" });
+            }
+        }
+        Some("workspace") => {
+            let compositor = Compositor::current();
+            match arguments.get(1) {
+                Some(number) => compositor.focus_workspace(number.parse().unwrap_or_else(|_| fail(USAGE))),
+                None => println!("{}", compositor.workspace()),
             }
         }
         Some("clipboard") => {
@@ -121,6 +210,10 @@ fn main() {
         Some("duration") => {
             let reader = hound::WavReader::open(argument(1)).unwrap_or_else(|e| fail(&e.to_string()));
             println!("{:.1}", reader.duration() as f64 / reader.spec().sample_rate as f64);
+        }
+        Some("channels") => {
+            let reader = hound::WavReader::open(argument(1)).unwrap_or_else(|e| fail(&e.to_string()));
+            println!("{}", reader.spec().channels);
         }
         _ => fail(USAGE),
     }
