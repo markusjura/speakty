@@ -24,7 +24,10 @@ case $channels in
 esac
 output=$(mktemp)
 workspace=$($ui workspace)
+player=
 cleanup() {
+  # A player that never got linked waits forever.
+  [[ -z $player ]] || kill "$player" 2>/dev/null || true
   $ui workspace "$workspace"
   jq 'del(.debug.microphone) | if .debug == {} then del(.debug) else . end' "$settings" > "$settings.new" && mv "$settings.new" "$settings"
   pw-cli destroy "$microphone" >/dev/null 2>&1 || true
@@ -32,11 +35,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# A duplex node takes playback like a speaker and records like a microphone. Its priority keeps it
-# from becoming the default output or input.
+# A virtual source records like a microphone, and its input ports take what's linked to them. Its
+# priority keeps it from becoming the default input. WirePlumber 0.5.14 doesn't link capture streams to
+# duplex nodes, which would take playback without manual links, so pw-link connects the player.
 pw-cli destroy "$microphone" >/dev/null 2>&1 || true
 pw-cli create-node adapter "{ factory.name=support.null-audio-sink node.name=$microphone node.description=\"Speakty test microphone\"
-  media.class=Audio/Duplex audio.position=[${positions//,/ }] priority.session=0 priority.driver=0 object.linger=true }" >/dev/null 2>&1
+  media.class=Audio/Source/Virtual audio.position=[${positions//,/ }] priority.session=0 priority.driver=0 object.linger=true }" >/dev/null 2>&1
 mkdir -p "$(dirname "$settings")"
 [[ -f $settings ]] || echo '{}' > "$settings"
 jq --arg microphone "$microphone" '.debug.microphone = $microphone' "$settings" > "$settings.new" && mv "$settings.new" "$settings"
@@ -55,7 +59,15 @@ $ui hold rsuper "$(awk -v d="$duration" 'BEGIN { print d + 4 }')" &
 hold=$!
 timeout 6 bash -c "until journalctl --user -u speakty-dev.service --since @$since -o cat | grep -q 'Recording at'; do sleep 0.1; done" ||
   { echo "Speakty Dev didn't start recording. Is it running? scripts/run.sh dev" >&2; exit 1; }
-pw-play --target "$microphone" --channel-map "$positions" "$recording"
+pw-play --target 0 -P '{ node.name = speakty-test-player }' --channel-map "$positions" "$recording" &
+player=$!
+# An unlinked stream waits, so linking right after it appears loses nothing.
+timeout 3 bash -c 'until pw-link -o | grep -q "^speakty-test-player:"; do sleep 0.05; done'
+for position in ${positions//,/ }; do
+  pw-link "speakty-test-player:output_$position" "$microphone:input_$position"
+done
+wait $player
+player=
 wait $hold
 wait
 cat "$output"

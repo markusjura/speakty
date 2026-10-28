@@ -182,10 +182,10 @@ fn run(receiver: pw::channel::Receiver<Command>, capture: Arc<Mutex<Capture>>, s
                 *metadata.borrow_mut() = Some((proxy, listener));
                 return;
             }
-            // Settings offers microphones. A recording can also target a virtual source or a
-            // duplex node, such as the one scripts/dictate.sh plays into.
+            // Settings offers microphones. A recording can also target a virtual source, such as
+            // the one scripts/dictate.sh plays into.
             let class = props.get("media.class").unwrap_or_default();
-            if !matches!(class, "Audio/Source" | "Audio/Source/Virtual" | "Audio/Duplex") {
+            if !matches!(class, "Audio/Source" | "Audio/Source/Virtual") {
                 return;
             }
             let name = props.get("node.name").unwrap_or_default().to_string();
