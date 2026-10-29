@@ -70,6 +70,53 @@
       "output": "(unclosed"
     }
   ],
+  "spelling": [
+    {
+      "name": "Terms keep the case they were typed in",
+      "vocabulary": [
+        "PipeWire",
+        "journalctl",
+        "Codex"
+      ],
+      "input": "Pipewire records it, see Journalctl and CODEX.",
+      "output": "PipeWire records it, see journalctl and Codex."
+    },
+    {
+      "name": "Spaces, hyphens, and underscores between a term's words are interchangeable",
+      "vocabulary": [
+        "grill-with-docs",
+        "GitHub Actions"
+      ],
+      "input": "Run grill with docs, then the GitHub-actions run.",
+      "output": "Run grill-with-docs, then the GitHub Actions run."
+    },
+    {
+      "name": "Only whole words match",
+      "vocabulary": [
+        "Codex",
+        "AGENTS.md"
+      ],
+      "input": "Codexes read codex and agents.md, not agentsxmd.",
+      "output": "Codexes read Codex and AGENTS.md, not agentsxmd."
+    },
+    {
+      "name": "The longer term wins where terms start at the same word",
+      "vocabulary": [
+        "Codex",
+        "Codex-Thread"
+      ],
+      "input": "Im codex thread fragt codex.",
+      "output": "Im Codex-Thread fragt Codex."
+    },
+    {
+      "name": "Separators at a term's edges are part of it",
+      "vocabulary": [
+        "--verbose"
+      ],
+      "input": "Pass --Verbose, not verbose.",
+      "output": "Pass --verbose, not verbose."
+    }
+  ],
   "fitting": [
     {
       "text": "Then ship it.",

@@ -1,3 +1,4 @@
+import CoreML
 import FluidAudio
 import Foundation
 import Observation
@@ -99,17 +100,17 @@ final class Transcriber {
         boostingTask = nil
         let terms = vocabulary
         guard !terms.isEmpty else { return }
-        let models = ctcModels ?? Task { try await CtcModels.downloadAndLoad(variant: .ctc110m) }
+        let models = ctcModels ?? Task { try await Self.loadKeywordModels() }
         ctcModels = models
         boostingTask = Task {
             defer { if !Task.isCancelled { boostingTask = nil } }
             do {
-                // Dictation vocabularies are short names that sound like ordinary words. A similarity
-                // floor of 0.65 keeps ordinary words from turning into terms, and FluidAudio recommends
-                // turning off its acoustic rescue for them, which otherwise replaced whole ordinary
-                // phrases, such as "pastes the text", with a term.
-                let context = CustomVocabularyContext(terms: terms.map { CustomVocabularyTerm(text: $0) }, minSimilarity: 0.65)
-                let session = try await VocabularyBoostingSession(vocabulary: context, ctcModels: models.value,
+                let keywordModels = try await models.value
+                let tokenizer = try await CtcTokenizer.load(from: CtcModels.defaultCacheDirectory(for: keywordModels.variant))
+                let context = CustomVocabularyContext(terms: terms.map { Self.keywordTerm($0, encode: tokenizer.encode) })
+                // FluidAudio recommends turning off its acoustic rescue for short vocabularies of
+                // distinctive names, where it finds nothing the text match doesn't.
+                let session = try await VocabularyBoostingSession(vocabulary: context, ctcModels: keywordModels,
                                                                   config: .init(spotterRescueEnabled: false))
                 guard !Task.isCancelled else { return }
                 boosting = session
@@ -128,16 +129,42 @@ final class Transcriber {
         var decoder = TdtDecoderState.make()
         let result = try await manager.transcribe(samples, decoderState: &decoder)
         logger.info("Transcribed \(result.duration, format: .fixed(precision: 1)) s in \(result.processingTime, format: .fixed(precision: 2)) s")
-        // FluidAudio 0.17.7 has no `hasCTCRescoringCandidates` preflight yet; use it to skip the CTC
-        // pass once an upgrade adds it.
+        // The keyword model runs only when a phrase in the transcript resembles a term.
         guard let boosting, let timings = result.tokenTimings,
+              boosting.hasCTCRescoringCandidates(text: result.text, tokenTimings: timings),
               let rescored = await boosting.rescore(text: result.text, tokenTimings: timings, audioSamples: samples) else {
             return result.text
         }
         let corrections = rescored.replacements.filter(\.shouldReplace).compactMap { replacement in
             replacement.replacementWord.map { (phrase: replacement.originalWord, term: $0) }
         }
+        if !corrections.isEmpty { logger.info("Vocabulary put in \(corrections.map(\.term), privacy: .public)") }
         return Transcript.correcting(result.text, corrections) ?? rescored.text
+    }
+
+    /// The keyword model, with its mel spectrogram on the CPU. On the Neural Engine, where FluidAudio
+    /// puts it, the spectrogram loses the speech on M1 Pro and M4 Max alike: the model then hears
+    /// silence, and every replacement is decided by spelling alone.
+    private nonisolated static func loadKeywordModels() async throws -> CtcModels {
+        let models = try await CtcModels.downloadAndLoad(variant: .ctc110m)
+        let cpu = MLModelConfiguration()
+        cpu.computeUnits = .cpuOnly
+        let mel = try MLModel(contentsOf: CtcModels.defaultCacheDirectory(for: .ctc110m)
+            .appendingPathComponent(ModelNames.CTC.melSpectrogramPath), configuration: cpu)
+        return CtcModels(melSpectrogram: mel, encoder: models.encoder, configuration: models.configuration,
+                         vocabulary: models.vocabulary, variant: models.variant)
+    }
+
+    /// A vocabulary word as the keyword model hears it. The model can't spell hyphens, so
+    /// "grill-with-docs" is scored as spoken, "grill with docs", and matched against that phrase too.
+    /// A term of several spoken words needs a close match, since FluidAudio matches phrases without
+    /// the guard that keeps a phrase with "with" or "the" from becoming a term. At 0.75, "the GitHub
+    /// actions" became "GitHub Actions".
+    nonisolated static func keywordTerm(_ text: String, encode: (String) -> [Int]) -> CustomVocabularyTerm {
+        let spoken = text.split(whereSeparator: { $0 == "-" || $0 == "_" || $0.isWhitespace }).joined(separator: " ")
+        guard spoken.contains(" ") else { return CustomVocabularyTerm(text: text) }
+        return CustomVocabularyTerm(text: text, aliases: spoken == text ? nil : [spoken],
+                                    ctcTokenIds: encode(spoken), minSimilarity: 0.8)
     }
 
     private func report(_ progress: DownloadProgress) {

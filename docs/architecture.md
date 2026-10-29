@@ -30,7 +30,7 @@ This is a high-level overview. The code is the source of truth for details.
 1. The shortcut is held to talk, or tapped to toggle. Typing another key during a hold, or Esc, cancels.
 2. Recording continues for a short tail after release.
 3. Silence is trimmed and padded, then the samples are transcribed in one batch. No streaming.
-4. Replacements run, and an open last sentence of a multi-sentence transcript gets a period. With smart paragraphs on, a spoken "new paragraph" becomes a blank line and a long transcript is split into paragraphs, and with smart spacing on, the text is fitted to what's before the caret.
+4. Vocabulary terms get the spelling they were typed in, whatever case and separators recognition gave them. Replacements run, and an open last sentence of a multi-sentence transcript gets a period. With smart paragraphs on, a spoken "new paragraph" becomes a blank line and a long transcript is split into paragraphs, and with smart spacing on, the text is fitted to what's before the caret.
 5. The text is pasted. Failures beep and log; there is no error UI.
 
 ## Decisions

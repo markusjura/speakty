@@ -51,6 +51,35 @@ enum Transcript {
         }
     }
 
+    /// Spells each vocabulary term as it was typed wherever the transcript has it in another case or
+    /// with other separators, as in "Pipewire" for "PipeWire" or "grill with docs" for
+    /// "grill-with-docs". Where terms start at the same word, the longer one wins.
+    static func spelling(_ text: String, as vocabulary: [String]) -> String {
+        let isSeparator = { (character: Character) in character == "-" || character == "_" || character.isWhitespace }
+        let terms = vocabulary.filter { $0.contains { !isSeparator($0) } }.sorted { $0.count > $1.count }
+        // Only separators between words may differ; those at the edges, as in "--verbose", belong to the term.
+        let alternatives = terms.map { term in
+            let lead = term.prefix(while: isSeparator)
+            let trail = term.reversed().prefix(while: isSeparator).count
+            let words = term.dropFirst(lead.count).dropLast(trail).split(whereSeparator: isSeparator)
+            return "(" + NSRegularExpression.escapedPattern(for: String(lead))
+                + words.map { NSRegularExpression.escapedPattern(for: String($0)) }.joined(separator: #"[-_\s]+"#)
+                + NSRegularExpression.escapedPattern(for: String(term.suffix(trail))) + ")"
+        }
+        guard !terms.isEmpty, let expression = try? NSRegularExpression(
+            pattern: #"(?<!\w)(?:"# + alternatives.joined(separator: "|") + #")(?!\w)"#, options: .caseInsensitive) else { return text }
+        var result = ""
+        var rest = text.startIndex
+        for match in expression.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+            guard let range = Range(match.range, in: text),
+                  let term = (1..<match.numberOfRanges).first(where: { match.range(at: $0).location != NSNotFound }).map({ terms[$0 - 1] })
+            else { continue }
+            result += text[rest..<range.lowerBound] + term
+            rest = range.upperBound
+        }
+        return result + text[rest...]
+    }
+
     /// Ends a transcript of several sentences with a period when the last one is left open, as Parakeet
     /// does when speech stops without the voice falling. A transcript of one phrase stays open, since
     /// it may be a search, a name, or the middle of a sentence.
