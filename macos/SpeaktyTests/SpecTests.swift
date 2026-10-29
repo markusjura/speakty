@@ -22,6 +22,13 @@ final class SpecTests: XCTestCase {
         var output: String
     }
 
+    private struct SpellingCase: Decodable {
+        var name: String?
+        var vocabulary: [String]
+        var input: String
+        var output: String
+    }
+
     private struct FittingCase: Decodable {
         var name: String?
         var text: String
@@ -31,6 +38,7 @@ final class SpecTests: XCTestCase {
 
     private struct Spec: Decodable {
         var replacements: [ReplacementCase]
+        var spelling: [SpellingCase]
         var fitting: [FittingCase]
         var fittingNames: [String]
         var closing: [Case]
@@ -48,6 +56,12 @@ final class SpecTests: XCTestCase {
         for test in Self.spec.replacements {
             let rules = test.rules.map { Replacement(find: $0.find, replacement: $0.replacement, isPattern: $0.isPattern ?? false) }
             XCTAssertEqual(Transcript.applying(rules, to: test.input), test.output, test.name ?? test.input)
+        }
+    }
+
+    func testSpelling() {
+        for test in Self.spec.spelling {
+            XCTAssertEqual(Transcript.spelling(test.input, as: test.vocabulary), test.output, test.name ?? test.input)
         }
     }
 

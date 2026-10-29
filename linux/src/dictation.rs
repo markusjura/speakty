@@ -209,7 +209,8 @@ impl DictationController {
                 return log::error!("Transcription failed: {error}");
             }
         };
-        let mut text = transcript::closing(transcript::applying(&preferences.replacements, &raw).trim());
+        let spelled = transcript::spelling(&raw, &preferences.vocabulary);
+        let mut text = transcript::closing(transcript::applying(&preferences.replacements, &spelled).trim());
         if text.is_empty() {
             return;
         }

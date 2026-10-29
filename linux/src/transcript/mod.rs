@@ -86,6 +86,36 @@ pub fn applying(replacements: &[Replacement], text: &str) -> String {
     })
 }
 
+/// Spells each vocabulary term as it was typed wherever the transcript has it in another case or
+/// with other separators, as in "Pipewire" for "PipeWire" or "grill with docs" for
+/// "grill-with-docs". Where terms start at the same word, the longer one wins.
+pub fn spelling(text: &str, vocabulary: &[String]) -> String {
+    let is_separator = |c: char| c == '-' || c == '_' || c.is_whitespace();
+    let mut terms: Vec<&str> = vocabulary.iter().map(String::as_str).filter(|term| term.contains(|c| !is_separator(c))).collect();
+    terms.sort_by_key(|term| std::cmp::Reverse(term.chars().count()));
+    // Only separators between words may differ; those at the edges, as in "--verbose", belong to the term.
+    let alternatives: Vec<String> = terms
+        .iter()
+        .map(|term| {
+            let core = term.trim_matches(is_separator);
+            let lead = &term[..term.len() - term.trim_start_matches(is_separator).len()];
+            let trail = &term[term.trim_end_matches(is_separator).len()..];
+            let words: Vec<_> = core.split(is_separator).filter(|word| !word.is_empty()).map(|word| fancy_regex::escape(word)).collect();
+            format!("({}{}{})", fancy_regex::escape(lead), words.join(r"[-_\s]+"), fancy_regex::escape(trail))
+        })
+        .collect();
+    if terms.is_empty() {
+        return text.to_string();
+    }
+    let Ok(expression) = Regex::new(&format!(r"(?i)(?<!\w)(?:{})(?!\w)", alternatives.join("|"))) else {
+        return text.to_string();
+    };
+    let spelled = expression.try_replacen(text, 0, |captures: &Captures<str>| {
+        (1..captures.len()).find(|&group| captures.get(group).is_some()).map_or("", |group| terms[group - 1]).to_string()
+    });
+    spelled.map_or_else(|_| text.to_string(), |spelled| spelled.into_owned())
+}
+
 /// Expands a replacement template as NSRegularExpression does, so rules behave the same on macOS:
 /// `$` and digits name a group, taking digits while the group exists, as in `$12` with one group
 /// being group 1 and a "2". A backslash makes the next character literal, and any other `$` is literal.

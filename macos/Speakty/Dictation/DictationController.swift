@@ -174,7 +174,8 @@ final class DictationController {
                 let transcript = preferences.transcript
                 let raw = try await transcriber.transcribe(speech)
                 guard !Task.isCancelled else { return }
-                var text = Transcript.closing(Transcript.applying(transcript.replacements, to: raw)
+                let spelled = Transcript.spelling(raw, as: transcript.vocabulary)
+                var text = Transcript.closing(Transcript.applying(transcript.replacements, to: spelled)
                     .trimmingCharacters(in: .whitespacesAndNewlines))
                 guard !text.isEmpty else { return }
                 if transcript.splitsParagraphs {

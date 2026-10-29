@@ -19,6 +19,14 @@ struct ReplacementCase {
 }
 
 #[derive(Deserialize)]
+struct SpellingCase {
+    name: Option<String>,
+    vocabulary: Vec<String>,
+    input: String,
+    output: String,
+}
+
+#[derive(Deserialize)]
 struct FittingCase {
     name: Option<String>,
     text: String,
@@ -30,6 +38,7 @@ struct FittingCase {
 #[serde(rename_all = "camelCase")]
 struct Spec {
     replacements: Vec<ReplacementCase>,
+    spelling: Vec<SpellingCase>,
     fitting: Vec<FittingCase>,
     fitting_names: Vec<String>,
     closing: Vec<Case>,
@@ -59,6 +68,11 @@ fn cases(cases: Vec<Case>, apply: impl Fn(&str) -> String) -> Vec<(Option<String
 #[test]
 fn replacements() {
     check(spec().replacements.into_iter().map(|c| (c.name, transcript::applying(&c.rules, &c.input), c.output)));
+}
+
+#[test]
+fn spelling() {
+    check(spec().spelling.into_iter().map(|c| (c.name, transcript::spelling(&c.input, &c.vocabulary), c.output)));
 }
 
 #[test]
