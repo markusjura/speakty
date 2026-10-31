@@ -99,34 +99,6 @@ enum Transcript {
         }
     }
 
-    /// Swaps each recognized phrase for the vocabulary term that replaced it. FluidAudio's rescored
-    /// text drops the punctuation after a replaced phrase, as in "speak to, please" becoming
-    /// "Speakty please"; this keeps it. FluidAudio replaces a phrase where it was spoken, not where it
-    /// appears in the text, so this is nil, and FluidAudio's text is used, unless every occurrence of a
-    /// phrase was replaced by the same term.
-    static func correcting(_ text: String, _ corrections: [(phrase: String, term: String)]) -> String? {
-        var swaps: [(range: Range<String.Index>, term: String)] = []
-        let groups = Dictionary(grouping: corrections) { $0.phrase.trimmingCharacters(in: .punctuationCharacters.union(.whitespaces)) }
-        for (phrase, group) in groups {
-            let terms = Set(group.map(\.term))
-            guard !phrase.isEmpty, terms.count == 1, let term = terms.first,
-                  let expression = try? NSRegularExpression(pattern: #"(?<!\w)"# + NSRegularExpression.escapedPattern(for: phrase) + #"(?!\w)"#)
-            else { return nil }
-            let ranges = expression.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { Range($0.range, in: text) }
-            guard ranges.count == group.count else { return nil }
-            swaps += ranges.map { ($0, term) }
-        }
-        swaps.sort { $0.range.lowerBound < $1.range.lowerBound }
-        guard zip(swaps, swaps.dropFirst()).allSatisfy({ $0.range.upperBound <= $1.range.lowerBound }) else { return nil }
-        var result = ""
-        var rest = text.startIndex
-        for swap in swaps {
-            result += text[rest..<swap.range.lowerBound] + swap.term
-            rest = swap.range.upperBound
-        }
-        return result + text[rest...]
-    }
-
     /// Fits a transcript to the text before the caret. Mid-line it gets a leading space, unless it starts with a line break, and
     /// mid-sentence a capitalized first word is lowercased, unless it's "I", an acronym, or starts a
     /// name from `names`. At the start of a line, or when the text before the caret is unknown, it's unchanged.
