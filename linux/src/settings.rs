@@ -428,6 +428,10 @@ fn transcript(page: &adw::PreferencesPage, app: &Rc<App>, settings: &Rc<Settings
     let formatting = group(page, "Formatting", None);
     switch(&formatting, app, "Smart paragraphs", preferences.splits_paragraphs, |p, on| p.transcript.splits_paragraphs = on)
         .set_subtitle("Splits a long transcript into paragraphs, and starts one where you say \"new paragraph\"");
+
+    let clipboard = group(page, "Clipboard", None);
+    switch(&clipboard, app, "Keep transcript on clipboard", preferences.copies_to_clipboard, |p, on| p.transcript.copies_to_clipboard = on)
+        .set_subtitle("Leaves each transcript on the clipboard after pasting it, instead of restoring what was there before");
 }
 
 fn remove_button() -> gtk::Button {

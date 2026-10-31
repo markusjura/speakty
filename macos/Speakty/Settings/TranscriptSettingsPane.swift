@@ -12,6 +12,10 @@ struct TranscriptSettingsPane: View {
                 Toggle("Smart paragraphs", isOn: $preferences.transcript.splitsParagraphs)
                     .help("Splits long dictations into paragraphs, and starts one where you say \"new paragraph\".")
             }
+            Section("Clipboard") {
+                Toggle("Keep transcript on clipboard", isOn: $preferences.transcript.copiesToClipboard)
+                    .help("Leaves each transcript on the clipboard after pasting it, instead of restoring what was there before.")
+            }
         }
     }
 }

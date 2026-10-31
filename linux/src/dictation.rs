@@ -218,7 +218,7 @@ impl DictationController {
             text = transcript::paragraphs(&transcript::applying_paragraph_commands(&text));
         }
         // Smart spacing needs the text before the caret, which Linux apps don't share yet.
-        self.paster.insert(text, false);
+        self.paster.insert(text, false, preferences.copies_to_clipboard);
         if self.preferences.get().recording.plays_sounds {
             sounds::play(Sound::Done);
         }

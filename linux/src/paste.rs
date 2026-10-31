@@ -1,8 +1,9 @@
 //! Puts a transcript where the user is typing: on the clipboard, then Ctrl+V from a virtual
-//! keyboard, and Return when sending, then the previous clipboard back.
+//! keyboard, and Return when sending, then the previous clipboard back unless the transcript should
+//! stay there.
 //!
 //! The clipboard goes through the Wayland data-control protocol, which Hyprland, Sway, KDE, and
-//! other wlroots compositors offer. Every copy Speakty makes for a paste carries KDE's password
+//! other wlroots compositors offer. Every transcript that gets restored over carries KDE's password
 //! manager hint, which clipboard histories such as cliphist (through wl-paste --watch) and Klipper
 //! skip, as nspasteboard.org's transient type does on macOS. The terminals below paste with
 //! Ctrl+Shift+V; the app in front is known from Hyprland, and elsewhere Ctrl+V is used.
@@ -74,13 +75,15 @@ impl Paster {
     }
 
     /// Pastes `text` on a thread of its own, since reading the clipboard can wait on another app.
-    pub fn insert(&self, text: String, pressing_return: bool) {
+    /// `keeps_on_clipboard` leaves it on the clipboard as an ordinary copy, which clipboard histories
+    /// record, instead of restoring what was there before.
+    pub fn insert(&self, text: String, pressing_return: bool, keeps_on_clipboard: bool) {
         let state = self.state.clone();
-        std::thread::spawn(move || insert(&state, text, pressing_return));
+        std::thread::spawn(move || insert(&state, text, pressing_return, keeps_on_clipboard));
     }
 }
 
-fn insert(state: &Arc<Mutex<State>>, text: String, pressing_return: bool) {
+fn insert(state: &Arc<Mutex<State>>, text: String, pressing_return: bool, keeps_on_clipboard: bool) {
     let mut locked = state.lock().unwrap();
     if locked.keyboard.is_none() {
         if serve(text_contents(&text), false).is_some() {
@@ -89,13 +92,14 @@ fn insert(state: &Arc<Mutex<State>>, text: String, pressing_return: bool) {
         return;
     }
     let saved = match locked.pending.take() {
-        Some(pending) if pending.is_current.load(Ordering::SeqCst) => pending.saved,
-        _ => read_clipboard(),
+        _ if keeps_on_clipboard => None,
+        Some(pending) if pending.is_current.load(Ordering::SeqCst) => Some(pending.saved),
+        _ => Some(read_clipboard()),
     };
     locked.generation += 1;
     let generation = locked.generation;
     // Pasting now would put what the clipboard still holds into the text instead.
-    let Some(is_current) = serve(text_contents(&text), true) else { return };
+    let Some(is_current) = serve(text_contents(&text), saved.is_some()) else { return };
     let terminal = crate::focus::focused_class().is_some_and(|class| TERMINALS.contains(&class.to_lowercase().as_str()));
     let keyboard = locked.keyboard.as_mut().unwrap();
     let mut keys = vec![KeyCode::KEY_LEFTCTRL];
@@ -108,6 +112,7 @@ fn insert(state: &Arc<Mutex<State>>, text: String, pressing_return: bool) {
         log::error!("Couldn't press the paste keys: {error}");
     }
     log::info!("Pasted the transcript{}", if terminal { " into a terminal" } else { "" });
+    let Some(saved) = saved else { return };
     locked.pending = Some(Pending { saved, is_current: is_current.clone(), generation });
     drop(locked);
 

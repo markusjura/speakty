@@ -184,7 +184,7 @@ final class DictationController {
                 if transcript.matchesSurroundingText {
                     text = Transcript.fitting(text, after: TextInserter.textBeforeCaret(), keepingCaseOf: transcript.vocabulary)
                 }
-                TextInserter.insert(text, pressingReturn: sends)
+                TextInserter.insert(text, pressingReturn: sends, keepsOnClipboard: transcript.copiesToClipboard)
                 play(.done)
             } catch {
                 NSSound.beep()
