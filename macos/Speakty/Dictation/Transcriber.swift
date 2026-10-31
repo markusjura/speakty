@@ -18,8 +18,8 @@ enum DictationModel: String, CaseIterable, Identifiable, Sendable {
 }
 
 /// Downloads, loads, and runs the dictation model on the Neural Engine through FluidAudio. With a
-/// vocabulary, a second small model rescores each transcript against it, so names and terms win
-/// when the audio supports them.
+/// vocabulary, `VocabularyBoosting` checks each transcript against it, so names and terms win when
+/// the audio supports them.
 @MainActor @Observable
 final class Transcriber {
     enum State: Equatable {
@@ -40,7 +40,7 @@ final class Transcriber {
     @ObservationIgnored private var vocabulary: [String] = []
     /// The keyword model, loaded once and shared by every vocabulary's session.
     @ObservationIgnored private var ctcModels: Task<CtcModels, Error>?
-    @ObservationIgnored private var boosting: VocabularyBoostingSession?
+    @ObservationIgnored private var boosting: VocabularyBoosting?
     /// Builds `boosting`, and is nil once that finished or failed.
     @ObservationIgnored private var boostingTask: Task<Void, Never>?
     @ObservationIgnored private let logger = Logger(subsystem: "local.markus.Speakty", category: "Transcriber")
@@ -105,13 +105,7 @@ final class Transcriber {
         boostingTask = Task {
             defer { if !Task.isCancelled { boostingTask = nil } }
             do {
-                let keywordModels = try await models.value
-                let tokenizer = try await CtcTokenizer.load(from: CtcModels.defaultCacheDirectory(for: keywordModels.variant))
-                let context = CustomVocabularyContext(terms: terms.map { Self.keywordTerm($0, encode: tokenizer.encode) })
-                // FluidAudio recommends turning off its acoustic rescue for short vocabularies of
-                // distinctive names, where it finds nothing the text match doesn't.
-                let session = try await VocabularyBoostingSession(vocabulary: context, ctcModels: keywordModels,
-                                                                  config: .init(spotterRescueEnabled: false))
+                let session = try await VocabularyBoosting(terms: terms, models: models.value)
                 guard !Task.isCancelled else { return }
                 boosting = session
             } catch {
@@ -122,24 +116,23 @@ final class Transcriber {
         }
     }
 
-    /// The transcript of 16 kHz mono speech, rescored against the vocabulary when there is one.
+    /// The transcript of 16 kHz mono speech, with the vocabulary terms the audio supports put in.
     func transcribe(_ samples: [Float]) async throws -> String {
         guard let manager else { throw TranscriberError.notReady }
         if boosting == nil, boostingTask == nil { loadBoosting() }
         var decoder = TdtDecoderState.make()
         let result = try await manager.transcribe(samples, decoderState: &decoder)
         logger.info("Transcribed \(result.duration, format: .fixed(precision: 1)) s in \(result.processingTime, format: .fixed(precision: 2)) s")
-        // The keyword model runs only when a phrase in the transcript resembles a term.
-        guard let boosting, let timings = result.tokenTimings,
-              boosting.hasCTCRescoringCandidates(text: result.text, tokenTimings: timings),
-              let rescored = await boosting.rescore(text: result.text, tokenTimings: timings, audioSamples: samples) else {
+        guard let boosting, let timings = result.tokenTimings else { return result.text }
+        do {
+            guard let corrected = try await boosting.correcting(result.text, tokenTimings: timings, audio: samples) else { return result.text }
+            if !corrected.terms.isEmpty { logger.info("Vocabulary put in \(corrected.terms, privacy: .public)") }
+            return corrected.text
+        } catch {
+            // Boosting must never cost the transcript.
+            logger.error("Vocabulary boosting failed: \(error.localizedDescription, privacy: .public)")
             return result.text
         }
-        let corrections = rescored.replacements.filter(\.shouldReplace).compactMap { replacement in
-            replacement.replacementWord.map { (phrase: replacement.originalWord, term: $0) }
-        }
-        if !corrections.isEmpty { logger.info("Vocabulary put in \(corrections.map(\.term), privacy: .public)") }
-        return Transcript.correcting(result.text, corrections) ?? rescored.text
     }
 
     /// The keyword model, with its mel spectrogram on the CPU. On the Neural Engine, where FluidAudio
@@ -153,18 +146,6 @@ final class Transcriber {
             .appendingPathComponent(ModelNames.CTC.melSpectrogramPath), configuration: cpu)
         return CtcModels(melSpectrogram: mel, encoder: models.encoder, configuration: models.configuration,
                          vocabulary: models.vocabulary, variant: models.variant)
-    }
-
-    /// A vocabulary word as the keyword model hears it. The model can't spell hyphens, so
-    /// "grill-with-docs" is scored as spoken, "grill with docs", and matched against that phrase too.
-    /// A term of several spoken words needs a close match, since FluidAudio matches phrases without
-    /// the guard that keeps a phrase with "with" or "the" from becoming a term. At 0.75, "the GitHub
-    /// actions" became "GitHub Actions".
-    nonisolated static func keywordTerm(_ text: String, encode: (String) -> [Int]) -> CustomVocabularyTerm {
-        let spoken = text.split(whereSeparator: { $0 == "-" || $0 == "_" || $0.isWhitespace }).joined(separator: " ")
-        guard spoken.contains(" ") else { return CustomVocabularyTerm(text: text) }
-        return CustomVocabularyTerm(text: text, aliases: spoken == text ? nil : [spoken],
-                                    ctcTokenIds: encode(spoken), minSimilarity: 0.8)
     }
 
     private func report(_ progress: DownloadProgress) {
