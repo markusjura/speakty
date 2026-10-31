@@ -4,8 +4,8 @@ import Carbon.HIToolbox
 import os
 
 /// Puts a transcript where the user is typing: on the clipboard, then ⌘V into the focused app, and
-/// Return when sending, then the previous clipboard back. Without Accessibility, macOS drops posted keys, so the transcript
-/// stays on the clipboard to paste by hand.
+/// Return when sending, then the previous clipboard back unless the transcript should stay there.
+/// Without Accessibility, macOS drops posted keys, so the transcript stays on the clipboard to paste by hand.
 @MainActor
 enum TextInserter {
     private static let logger = Logger(subsystem: "local.markus.Speakty", category: "Paste")
@@ -16,25 +16,28 @@ enum TextInserter {
     /// pasted meanwhile keeps it, so a quick second dictation doesn't restore the first transcript.
     private static var pendingRestore: (items: [NSPasteboardItem], changeCount: Int, task: Task<Void, Never>)?
 
-    static func insert(_ text: String, pressingReturn: Bool = false) {
+    /// `keepsOnClipboard` leaves the transcript on the clipboard as an ordinary copy, which clipboard
+    /// managers record, instead of restoring what was there before.
+    static func insert(_ text: String, pressingReturn: Bool = false, keepsOnClipboard: Bool = false) {
         let pasteboard = NSPasteboard.general
-        guard AXIsProcessTrusted() else {
-            pasteboard.clearContents()
-            pasteboard.setString(text, forType: .string)
-            return logger.info("Copied the transcript; pasting needs Accessibility")
-        }
-        let saved = if let pendingRestore, pendingRestore.changeCount == pasteboard.changeCount {
+        let canPaste = AXIsProcessTrusted()
+        let saved: [NSPasteboardItem]? = if !canPaste || keepsOnClipboard {
+            nil
+        } else if let pendingRestore, pendingRestore.changeCount == pasteboard.changeCount {
             pendingRestore.items
         } else {
             copies(of: pasteboard)
         }
         pendingRestore?.task.cancel()
+        pendingRestore = nil
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
-        pasteboard.setData(Data(), forType: transientType)
+        guard canPaste else { return logger.info("Copied the transcript; pasting needs Accessibility") }
+        if saved != nil { pasteboard.setData(Data(), forType: transientType) }
         let ours = pasteboard.changeCount
         post(KeyNames.keyCode(typingWithCommand: "v") ?? UInt16(kVK_ANSI_V), flags: .maskCommand)
         if pressingReturn { post(UInt16(kVK_Return)) }
+        guard let saved else { return }
         pendingRestore = (saved, ours, Task {
             // The target app reads the clipboard after it handles ⌘V, which can take a moment.
             do { try await Task.sleep(for: .milliseconds(400)) } catch { return }

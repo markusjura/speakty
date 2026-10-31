@@ -122,6 +122,8 @@ struct TranscriptPreferences: Codable, Equatable, Sendable {
     /// Splits a long transcript into paragraphs, separated by a blank line, and starts one where
     /// "new paragraph" is said.
     var splitsParagraphs = true
+    /// Leaves each pasted transcript on the clipboard instead of restoring what was there before.
+    var copiesToClipboard = false
 
     var isValid: Bool { replacements.allSatisfy(\.isValid) }
 }

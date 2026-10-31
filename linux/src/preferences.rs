@@ -129,11 +129,13 @@ pub struct Transcript {
     /// Splits a long transcript into paragraphs, separated by a blank line, and starts one where
     /// "new paragraph" is said.
     pub splits_paragraphs: bool,
+    /// Leaves each pasted transcript on the clipboard instead of restoring what was there before.
+    pub copies_to_clipboard: bool,
 }
 
 impl Default for Transcript {
     fn default() -> Self {
-        Self { vocabulary: Vec::new(), replacements: Vec::new(), splits_paragraphs: true }
+        Self { vocabulary: Vec::new(), replacements: Vec::new(), splits_paragraphs: true, copies_to_clipboard: false }
     }
 }
 
