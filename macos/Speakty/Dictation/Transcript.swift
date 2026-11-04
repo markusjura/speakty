@@ -43,6 +43,13 @@ enum Transcript {
         return Array(samples[start..<end]) + [Float](repeating: 0, count: sampleRate / 2)
     }
 
+    /// A recognized transcript with the vocabulary spelled as typed, the replacements applied, and an
+    /// open last sentence closed. Dictation runs it before smart paragraphs and spacing, and so does
+    /// `Scripts/benchmark.sh`.
+    static func finishing(_ text: String, vocabulary: [String], replacements: [Replacement]) -> String {
+        closing(applying(replacements, to: spelling(text, as: vocabulary)).trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
     static func applying(_ replacements: [Replacement], to text: String) -> String {
         replacements.reduce(text) { text, rule in
             guard let expression = rule.expression else { return text }

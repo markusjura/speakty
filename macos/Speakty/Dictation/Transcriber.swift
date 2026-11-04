@@ -14,7 +14,22 @@ enum DictationModel: String, CaseIterable, Identifiable, Sendable {
     var size: String { "632 MB" }
     fileprivate var version: AsrModelVersion { .ultra }
     fileprivate var directory: URL { AsrModels.defaultCacheDirectory(for: version) }
+
+    /// Downloads the model if needed, loads it onto the Neural Engine, and returns its recognizer.
+    func load(progress: ProgressHandler? = nil) async throws -> Recognizer {
+        let models = try await AsrModels.downloadAndLoad(version: version, progressHandler: progress)
+        let manager = AsrManager(config: .default)
+        try await manager.loadModels(models)
+        return { samples in
+            var decoder = TdtDecoderState.make()
+            return try await manager.transcribe(samples, decoderState: &decoder)
+        }
+    }
 }
+
+/// A loaded model: 16 kHz mono speech in, text with the per-token timings vocabulary boosting needs
+/// out. `Scripts/benchmark.sh` runs candidate models through one too.
+typealias Recognizer = @Sendable ([Float]) async throws -> ASRResult
 
 /// Downloads, loads, and runs the dictation model on the Neural Engine through FluidAudio. With a
 /// vocabulary, `VocabularyBoosting` checks each transcript against it, so names and terms win when
@@ -34,7 +49,7 @@ final class Transcriber {
     let model = DictationModel.parakeetUltra
     private(set) var state: State
 
-    @ObservationIgnored private var manager: AsrManager?
+    @ObservationIgnored private var recognizer: Recognizer?
     @ObservationIgnored private var isPreparing = false
     @ObservationIgnored private var vocabulary: [String] = []
     /// The keyword model, loaded once and shared by every vocabulary's session.
@@ -50,22 +65,19 @@ final class Transcriber {
 
     /// Downloads the model if needed and loads it, so the first dictation is as fast as the rest.
     func prepare() {
-        guard !isPreparing, manager == nil else { return }
+        guard !isPreparing, recognizer == nil else { return }
         let model = model
         isPreparing = true
         state = AsrModels.modelsExist(at: model.directory, version: model.version) ? .loading : .downloading(0)
         Task {
             do {
-                let models = try await AsrModels.downloadAndLoad(version: model.version) { progress in
+                let recognizer = try await model.load { progress in
                     Task { @MainActor in if self.isPreparing { self.report(progress) } }
                 }
-                let manager = AsrManager(config: .default)
-                try await manager.loadModels(models)
                 // A short transcription compiles the decoder paths, so the first dictation doesn't pay for it.
-                var decoder = TdtDecoderState.make()
-                _ = try? await manager.transcribe([Float](repeating: 0, count: Transcript.sampleRate), decoderState: &decoder)
+                _ = try? await recognizer([Float](repeating: 0, count: Transcript.sampleRate))
                 isPreparing = false
-                self.manager = manager
+                self.recognizer = recognizer
                 state = .ready
                 logger.info("\(model.title, privacy: .public) is ready")
             } catch {
@@ -79,7 +91,7 @@ final class Transcriber {
     /// Deletes the downloaded model. Dictation stays off until it's downloaded again.
     func remove() {
         guard state == .ready else { return }
-        manager = nil
+        recognizer = nil
         try? FileManager.default.removeItem(at: model.directory)
         state = .absent
     }
@@ -117,21 +129,12 @@ final class Transcriber {
 
     /// The transcript of 16 kHz mono speech, with the vocabulary terms the audio supports put in.
     func transcribe(_ samples: [Float]) async throws -> String {
-        guard let manager else { throw TranscriberError.notReady }
+        guard let recognizer else { throw TranscriberError.notReady }
         if boosting == nil, boostingTask == nil { loadBoosting() }
-        var decoder = TdtDecoderState.make()
-        let result = try await manager.transcribe(samples, decoderState: &decoder)
+        let result = try await recognizer(samples)
         logger.info("Transcribed \(result.duration, format: .fixed(precision: 1)) s in \(result.processingTime, format: .fixed(precision: 2)) s")
-        guard let boosting, let timings = result.tokenTimings else { return result.text }
-        do {
-            guard let corrected = try await boosting.correcting(result.text, tokenTimings: timings, audio: samples) else { return result.text }
-            if !corrected.terms.isEmpty { logger.info("Vocabulary put in \(corrected.terms, privacy: .public)") }
-            return corrected.text
-        } catch {
-            // Boosting must never cost the transcript.
-            logger.error("Vocabulary boosting failed: \(error.localizedDescription, privacy: .public)")
-            return result.text
-        }
+        guard let boosting else { return result.text }
+        return await boosting.transcript(of: result, audio: samples)
     }
 
     private func report(_ progress: DownloadProgress) {

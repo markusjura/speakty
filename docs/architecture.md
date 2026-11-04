@@ -36,7 +36,7 @@ This is a high-level overview. The code is the source of truth for details.
 
 ## Decisions
 
-- One model, Parakeet Ultra, with automatic language detection. Models are rows in Settings > Models, but the code keeps one concrete `Transcriber` until a second engine arrives.
+- One model, Parakeet Ultra, with automatic language detection. Models are rows in Settings > Models, but the code keeps one concrete `Transcriber` until a second engine arrives. A loaded model is a `Recognizer`, a function from speech to text with token timings, so `macos/Scripts/benchmark.sh` measures candidates through the same vocabulary boosting and transcript steps as dictation. A candidate replaces Parakeet Ultra only on numbers from Markus's own dictations, not the starter set.
 - No LLM rewriting or cleanup model. Parakeet already writes punctuation and capitalization.
 - Vocabulary boosting favors precision. A term replaces a phrase only when the keyword model scores it at least as well on the audio, with a head start when Parakeet was unsure of the phrase or the phrase spells the term with extra letters. A term in place of a word that was said is worse than a misspelled name.
 - Smart paragraphs choose breaks at sentence boundaries by cost: even paragraph lengths, and openings that change or continue the topic. Pauses aren't used, since a pause to think is as long as a pause between topics. A spoken "new paragraph" breaks exactly where it's said. No model, so it's instant and predictable.

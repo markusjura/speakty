@@ -1,5 +1,6 @@
 import FluidAudio
 import Foundation
+import os
 
 /// Checks a transcript against the vocabulary with FluidAudio's small CTC keyword model, and puts in a
 /// term where the audio supports it over what Parakeet wrote.
@@ -13,6 +14,7 @@ struct VocabularyBoosting: Sendable {
     private let spotter: CtcKeywordSpotter
     private let rescorer: VocabularyRescorer
     private let minSimilarity: Float
+    private static let logger = Logger(subsystem: "local.markus.Speakty", category: "VocabularyBoosting")
 
     /// Loads the session for `terms`. The models are shared by every vocabulary.
     init(terms: [String], models: CtcModels) async throws {
@@ -26,6 +28,20 @@ struct VocabularyBoosting: Sendable {
                                                        config: .init(spotterRescueEnabled: false), ctcModelDirectory: directory)
         minSimilarity = max(ContextBiasingConstants.rescorerConfig(forVocabSize: vocabulary.terms.count).minSimilarity,
                             vocabulary.minSimilarity)
+    }
+
+    /// The recognized text with the vocabulary terms the audio supports put in. Boosting never costs
+    /// the transcript: without token timings, or when the keyword model fails, it's the text as recognized.
+    func transcript(of result: ASRResult, audio: [Float]) async -> String {
+        guard let timings = result.tokenTimings else { return result.text }
+        do {
+            guard let corrected = try await correcting(result.text, tokenTimings: timings, audio: audio) else { return result.text }
+            if !corrected.terms.isEmpty { Self.logger.info("Vocabulary put in \(corrected.terms, privacy: .public)") }
+            return corrected.text
+        } catch {
+            Self.logger.error("Vocabulary boosting failed: \(error.localizedDescription, privacy: .public)")
+            return result.text
+        }
     }
 
     /// `text` with the vocabulary terms the audio supports put in, and those terms, or nil when no
