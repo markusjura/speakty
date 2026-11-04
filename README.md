@@ -55,6 +55,8 @@ macos/Scripts/run.sh installed  # switch back to /Applications/Speakty.app
 
 The Debug build is Speakty Dev, bundle ID `local.markus.Speakty.dev`. It has its own preferences and permission grants, so it never touches the installed Speakty's settings, and Spotlight and Raycast list it separately. `run.sh dev` copies the build to `~/Applications/Speakty Dev.app` and launches that copy, because Spotlight doesn't index the hidden `.build` folder. Every checkout and worktree replaces the same copy. The two share the dictation shortcut, so only one runs: `run.sh` quits both before launching one, and Speakty Dev quits the installed build when it launches and quits itself when the installed build launches. That check exists only in Debug builds. Both builds share the downloaded models in `~/Library/Application Support/FluidAudio`. To start Speakty Dev with your current settings, run `defaults export local.markus.Speakty - | defaults import local.markus.Speakty.dev -` while both are quit.
 
+To compare dictation models, see [docs/benchmark.md](docs/benchmark.md).
+
 ## Package, install, and roll back on macOS
 
 Releases cover both apps under one version, `MARKETING_VERSION` in `Version.xcconfig` at the repository root. `scripts/release.sh [patch|minor|major|X.Y.Z]` runs on the Mac. It bumps the version, patch by default, commits `chore: release <version>`, and pushes it to `main` with tag `v<version>`. The tag starts the Linux build in GitHub Actions. The script then packages, installs, and launches the macOS app with the scripts below and publishes the release with `scripts/publish.sh`. `CURRENT_PROJECT_VERSION` equals `MARKETING_VERSION`, so the version alone identifies a release.

@@ -1,14 +1,17 @@
 #!/bin/zsh
 # Runs xcodebuild on Speakty with the shared project, scheme, and destination.
-# Usage: Scripts/xcode.sh debug|release <xcodebuild arguments>, such as `Scripts/xcode.sh release build`.
+# Usage: Scripts/xcode.sh debug|release|benchmark <xcodebuild arguments>, such as `Scripts/xcode.sh release build`.
 # Debug builds and tests share .build/acceptance-tests, so a build after a test run is incremental.
+# Benchmark is Debug, so the tests can reach the app's internals, but optimized like Release, since
+# FluidAudio's CPU work takes half as long again unoptimized. It builds in its own folder.
 set -euo pipefail
 cd "${0:A:h:h}"
 
 case "${1:-}" in
   debug) settings=(-configuration Debug -derivedDataPath .build/acceptance-tests) ;;
   release) settings=(-configuration Release -derivedDataPath .build) ;;
-  *) print -u2 "Usage: Scripts/xcode.sh debug|release <xcodebuild arguments>"; exit 1 ;;
+  benchmark) settings=(-configuration Debug -derivedDataPath .build/benchmark-build SWIFT_OPTIMIZATION_LEVEL=-O) ;;
+  *) print -u2 "Usage: Scripts/xcode.sh debug|release|benchmark <xcodebuild arguments>"; exit 1 ;;
 esac
 shift
 
