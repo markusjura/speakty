@@ -4,7 +4,7 @@
 #   Scripts/benchmark.sh <model>...  # parakeet-ultra, nemotron-unified; BenchmarkModel lists them
 #   Scripts/benchmark.sh seed        # adds the starter set to the eval folder
 # The eval folder is ~/Library/Application Support/Speakty/eval: <language>-<name>.wav with what was
-# said in <language>-<name>.txt, and vocabulary.txt with one term per line. The README describes it.
+# said in <language>-<name>.txt, and vocabulary.txt with one term per line. docs/benchmark.md describes it.
 # BenchmarkTests runs each model in an optimized unit test host as a dictation runs. A running
 # Speakty Dev quits for the run, as for Scripts/test.sh, and is relaunched afterwards. Each clip's
 # transcript lands in .build/benchmark.

@@ -55,25 +55,7 @@ macos/Scripts/run.sh installed  # switch back to /Applications/Speakty.app
 
 The Debug build is Speakty Dev, bundle ID `local.markus.Speakty.dev`. It has its own preferences and permission grants, so it never touches the installed Speakty's settings, and Spotlight and Raycast list it separately. `run.sh dev` copies the build to `~/Applications/Speakty Dev.app` and launches that copy, because Spotlight doesn't index the hidden `.build` folder. Every checkout and worktree replaces the same copy. The two share the dictation shortcut, so only one runs: `run.sh` quits both before launching one, and Speakty Dev quits the installed build when it launches and quits itself when the installed build launches. That check exists only in Debug builds. Both builds share the downloaded models in `~/Library/Application Support/FluidAudio`. To start Speakty Dev with your current settings, run `defaults export local.markus.Speakty - | defaults import local.markus.Speakty.dev -` while both are quit.
 
-## Compare dictation models on macOS
-
-`macos/Scripts/benchmark.sh <model>...` measures models on the eval set and prints a table: word error rate overall and per language, the same with capitalization kept and with punctuation scored too, vocabulary terms written correctly, and median time-to-text. Models are `parakeet-ultra` and `nemotron-unified`, which runs Nemotron Unified ASR 0.6B with automatic language detection.
-
-```sh
-macos/Scripts/benchmark.sh seed                             # adds the starter set to the eval folder
-macos/Scripts/benchmark.sh parakeet-ultra nemotron-unified
-```
-
-Each clip runs as a dictation does, in an optimized build of the unit test host: silence trimmed, transcribed, vocabulary boosted, and the vocabulary spelling and closing period applied. Time-to-text is from the end of the audio to that text, on a warm model. Both texts are normalized before scoring as FluidAudio's multilingual benchmarks do: digits spelled out, lowercased, and punctuation and symbols removed. Each clip's transcript lands in `macos/.build/benchmark`.
-
-The eval set lives in `~/Library/Application Support/Speakty/eval`:
-
-- `<language>-<name>.wav` is 16 kHz mono speech, and `<language>-<name>.txt` is what was said, cased and punctuated as Speakty should write it. The prefix before the first dash, such as `de` or `en`, is the language.
-- `vocabulary.txt` has one vocabulary term per line, as in Settings > Transcript. The benchmark boosts these terms and counts them in the references.
-
-`seed` adds 25 German and 25 English clips from the FLEURS test set, raised to a dictation's level, and ten sentences with vocabulary terms in macOS voices. That's enough to see a model's shape, but read speech and synthetic voices aren't dictation. Decide on a model only with a set of your own dictations. Speakty keeps no recordings, so record yourself saying what you'd dictate, for example with QuickTime Player's New Audio Recording, and convert it to 16 kHz mono with `ffmpeg -i Recording.m4a -ar 16000 -ac 1 en-mine-01.wav`. Write what you said into `en-mine-01.txt` and add the names and terms you use to `vocabulary.txt`. Delete the starter clips once yours outnumber them.
-
-To measure another model, add a case to `BenchmarkModel` in `macos/SpeaktyTests/BenchmarkTests.swift` that loads it and returns its recognizer.
+To compare dictation models, see [docs/benchmark.md](docs/benchmark.md).
 
 ## Package, install, and roll back on macOS
 

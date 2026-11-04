@@ -237,10 +237,7 @@ enum Report {
             |\(String(repeating: "---|", count: columns.count))
             \(rows.joined(separator: "\n"))
 
-            - WER is scored after normalizing both texts as FluidAudio's multilingual benchmarks do: digits spelled out, lowercased, punctuation and symbols removed.
-            - Cased keeps capitalization. Punctuated also scores . , ? ! : ; as words. Their distance from WER is what normalization hides.
-            - Vocabulary counts the vocabulary terms in the references that the transcripts have too, and the terms written where they weren't said.
-            - Time-to-text is the median from the end of the audio to the final text, on a warm model, with vocabulary boosting.
+            WER is scored after normalizing both texts as FluidAudio's multilingual benchmarks do: digits spelled out, lowercased, punctuation and symbols removed. docs/benchmark.md explains the columns.
 
             """
     }
