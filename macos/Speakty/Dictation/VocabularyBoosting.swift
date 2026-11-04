@@ -7,6 +7,8 @@ import Foundation
 /// FluidAudio finds the candidates: phrases spelled like a term. It scores each one twice on the
 /// audio, as the term and as written, and leaves the decision to `correcting`. FluidAudio's own
 /// decision adds a flat 4.5 to the term's score, which put "TanStack" in for a clearly spoken "stack".
+/// Since 0.18.2 it withholds the boost from a word Parakeet heard at 0.99 confidence or more, unless
+/// the word is spelled like the term, and still adds the full 4.5 to every other candidate.
 struct VocabularyBoosting: Sendable {
     private let spotter: CtcKeywordSpotter
     private let rescorer: VocabularyRescorer

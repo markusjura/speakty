@@ -1,4 +1,3 @@
-import CoreML
 import FluidAudio
 import Foundation
 import Observation
@@ -100,7 +99,7 @@ final class Transcriber {
         boostingTask = nil
         let terms = vocabulary
         guard !terms.isEmpty else { return }
-        let models = ctcModels ?? Task { try await Self.loadKeywordModels() }
+        let models = ctcModels ?? Task { try await CtcModels.downloadAndLoad(variant: .ctc110m) }
         ctcModels = models
         boostingTask = Task {
             defer { if !Task.isCancelled { boostingTask = nil } }
@@ -133,19 +132,6 @@ final class Transcriber {
             logger.error("Vocabulary boosting failed: \(error.localizedDescription, privacy: .public)")
             return result.text
         }
-    }
-
-    /// The keyword model, with its mel spectrogram on the CPU. On the Neural Engine, where FluidAudio
-    /// puts it, the spectrogram loses the speech on M1 Pro and M4 Max alike: the model then hears
-    /// silence, and every replacement is decided by spelling alone.
-    private nonisolated static func loadKeywordModels() async throws -> CtcModels {
-        let models = try await CtcModels.downloadAndLoad(variant: .ctc110m)
-        let cpu = MLModelConfiguration()
-        cpu.computeUnits = .cpuOnly
-        let mel = try MLModel(contentsOf: CtcModels.defaultCacheDirectory(for: .ctc110m)
-            .appendingPathComponent(ModelNames.CTC.melSpectrogramPath), configuration: cpu)
-        return CtcModels(melSpectrogram: mel, encoder: models.encoder, configuration: models.configuration,
-                         vocabulary: models.vocabulary, variant: models.variant)
     }
 
     private func report(_ progress: DownloadProgress) {
