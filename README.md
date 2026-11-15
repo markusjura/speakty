@@ -98,3 +98,7 @@ linux/scripts/install.sh <archive>
 Debug builds are Speakty Dev, app ID `local.markus.Speakty.dev`, with their own settings in `~/.config/speakty-dev`. They share the models with the installed Speakty.
 
 GitHub Actions runs the Linux tests on every pull request and builds the release archive for every `v*` tag in a Debian 13 container, whose older libraries make the binary run on rolling distributions too. Releases cover both apps; see Package, install, and roll back on macOS.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
