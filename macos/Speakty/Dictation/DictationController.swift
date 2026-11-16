@@ -23,8 +23,6 @@ final class DictationController {
     }
 
     private(set) var phase = Phase.idle
-    /// A running microphone keeps the Mac awake, so one kept on stops while the displays sleep.
-    private var displaysAreAsleep = CGDisplayIsAsleep(CGMainDisplayID()) != 0
 
     let recorder = AudioRecorder()
     @ObservationIgnored private let preferences: AppPreferences
@@ -51,33 +49,6 @@ final class DictationController {
         self.permissions = permissions
         self.transcriber = transcriber
         self.openPermissions = openPermissions
-    }
-
-    func start() {
-        let workspace = NSWorkspace.shared.notificationCenter
-        for (name, asleep) in [(NSWorkspace.screensDidSleepNotification, true), (NSWorkspace.screensDidWakeNotification, false)] {
-            workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.displaysAreAsleep = asleep }
-            }
-        }
-        configureMicrophone()
-        // A microphone kept on moves to an input connected or chosen as the default meanwhile.
-        Task { [recorder] in
-            for await _ in AudioDevices.changes() { recorder.refresh() }
-        }
-    }
-
-    /// Follows the chosen input, and keeps the microphone on when asked, but never before access is
-    /// granted, since starting it would show macOS's prompt.
-    private func configureMicrophone() {
-        let (inputUID, keepsOn) = withObservationTracking {
-            let recording = preferences.recording
-            return (recording.microphoneUID,
-                    recording.keepsMicrophoneOn && permissions.microphone == .authorized && !displaysAreAsleep)
-        } onChange: { [weak self] in
-            Task { @MainActor in self?.configureMicrophone() }
-        }
-        recorder.configure(inputUID: inputUID, keepsOn: keepsOn)
     }
 
     var isRecording: Bool {
@@ -151,7 +122,7 @@ final class DictationController {
         }
         recordings += 1
         let recording = recordings
-        recorder.start { [weak self] result in
+        recorder.start(inputUID: preferences.recording.microphoneUID) { [weak self] result in
             guard let self, recording == recordings else { return }
             microphoneStarted(result)
         }

@@ -19,29 +19,24 @@ enum AudioDevices {
         }
     }
 
-    /// Yields whenever a device connects or disconnects, or the default input changes, until the
-    /// consuming task ends.
+    /// Yields whenever a device connects or disconnects, until the consuming task ends.
     static func changes() -> AsyncStream<Void> {
         AsyncStream { continuation in
+            var address = devicesAddress
             let queue = DispatchQueue(label: "local.markus.Speakty.devices")
             let listener: @Sendable (UInt32, UnsafePointer<AudioObjectPropertyAddress>) -> Void = { _, _ in continuation.yield() }
             let system = AudioObjectID(kAudioObjectSystemObject)
-            let selectors = [kAudioHardwarePropertyDevices, kAudioHardwarePropertyDefaultInputDevice]
-            for selector in selectors {
-                var address = systemAddress(selector)
-                AudioObjectAddPropertyListenerBlock(system, &address, queue, listener)
-            }
+            AudioObjectAddPropertyListenerBlock(system, &address, queue, listener)
             continuation.onTermination = { _ in
-                for selector in selectors {
-                    var address = systemAddress(selector)
-                    AudioObjectRemovePropertyListenerBlock(system, &address, queue, listener)
-                }
+                var address = devicesAddress
+                AudioObjectRemovePropertyListenerBlock(system, &address, queue, listener)
             }
         }
     }
 
-    private static func systemAddress(_ selector: AudioObjectPropertySelector) -> AudioObjectPropertyAddress {
-        AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+    private static var devicesAddress: AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDevices, mScope: kAudioObjectPropertyScopeGlobal,
+                                   mElement: kAudioObjectPropertyElementMain)
     }
 
     static func deviceID(forUID uid: String) -> AudioDeviceID? {
@@ -55,7 +50,8 @@ enum AudioDevices {
     static var defaultOutput: AudioDeviceID? { defaultDevice(kAudioHardwarePropertyDefaultOutputDevice) }
 
     private static func defaultDevice(_ selector: AudioObjectPropertySelector) -> AudioDeviceID? {
-        var address = systemAddress(selector)
+        var address = AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal,
+                                                 mElement: kAudioObjectPropertyElementMain)
         var device = AudioDeviceID(0)
         var size = UInt32(MemoryLayout<AudioDeviceID>.size)
         guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &device) == noErr,
@@ -64,7 +60,7 @@ enum AudioDevices {
     }
 
     private static func deviceIDs() -> [AudioDeviceID] {
-        var address = systemAddress(kAudioHardwarePropertyDevices)
+        var address = devicesAddress
         var size: UInt32 = 0
         let system = AudioObjectID(kAudioObjectSystemObject)
         guard AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size) == noErr else { return [] }
