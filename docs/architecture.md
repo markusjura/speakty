@@ -18,7 +18,7 @@ This is a high-level overview. The code is the source of truth for details.
 
 - `HotkeyMonitor` turns the dictation shortcut and Esc into events. A modifier key such as Right ⌘ comes from an event tap; a key combination comes from `RegisterEventHotKey`.
 - `DictationController` owns the dictation state (idle, recording, transcribing) and runs the pipeline. It's the only place that coordinates the other pieces.
-- `AudioRecorder` records 16 kHz mono from a fresh `AVAudioEngine` per dictation.
+- `AudioRecorder` records 16 kHz mono from an `AVAudioEngine` it builds once per input and starts for each dictation. With "Keep microphone on", the engine keeps running between dictations, except while the displays sleep.
 - `Transcriber` downloads, loads, and runs Parakeet Ultra through FluidAudio on the Neural Engine.
 - `VocabularyBoosting` checks each transcript against the vocabulary with FluidAudio's small CTC keyword model, and puts in a term where the audio supports it over what Parakeet wrote.
 - `Transcript` holds the pure steps between audio and paste: silence trimming, replacements, vocabulary spelling, smart paragraphs, and fitting text to what's before the caret.
@@ -40,6 +40,7 @@ This is a high-level overview. The code is the source of truth for details.
 - No LLM rewriting or cleanup model. Parakeet already writes punctuation and capitalization.
 - Vocabulary boosting favors precision. A term replaces a phrase only when the keyword model scores it at least as well on the audio, with a head start when Parakeet was unsure of the phrase or the phrase spells the term with extra letters. A term in place of a word that was said is worse than a misspelled name.
 - Smart paragraphs choose breaks at sentence boundaries by cost: even paragraph lengths, and openings that change or continue the topic. Pauses aren't used, since a pause to think is as long as a pause between topics. A spoken "new paragraph" breaks exactly where it's said. No model, so it's instant and predictable.
+- The microphone is off between dictations by default, and speech said before it starts is lost: the Vocaster takes about 550 ms to start from idle. "Keep microphone on" trades the microphone indicator, and idle sleep while the displays are on, for a start within a few milliseconds.
 - App state lives on the main actor. The audio engine lives on the recorder's own serial queue, so starting a slow interface never delays shortcut events.
 - Decision logic lives in pure functions, such as the hold-or-tap rules and `Transcript`, and is unit tested directly.
 - Updates relaunch the app only when no dictation is running.

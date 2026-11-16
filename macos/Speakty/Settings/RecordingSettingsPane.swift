@@ -71,6 +71,8 @@ struct RecordingSettingsPane: View {
                     }
                 }
                 .buttonStyle(.borderless)
+                Toggle("Keep microphone on", isOn: $preferences.recording.keepsMicrophoneOn)
+                    .settingsRowNote("Recording starts the moment you press the shortcut, instead of after the microphone wakes up. The microphone indicator stays on, except while the display sleeps.")
             }
             Section("Sound") {
                 Toggle("Play sounds", isOn: $preferences.recording.playsSounds)
