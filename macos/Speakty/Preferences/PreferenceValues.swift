@@ -72,9 +72,6 @@ struct RecordingPreferences: Codable, Equatable, Sendable {
     var edgeDistance = 24.0
     /// The Core Audio UID of the chosen microphone; nil follows the system default input.
     var microphoneUID: String?
-    /// Keeps the microphone running between dictations, so a recording starts instantly. Off by
-    /// default, since it keeps the microphone indicator on.
-    var keepsMicrophoneOn = false
     /// A soft tick when dictation starts and when the text lands.
     var playsSounds = true
     var mutesAudio = true

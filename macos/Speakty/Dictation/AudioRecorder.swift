@@ -8,13 +8,13 @@ import os
 ///
 /// Speech before the microphone starts is lost, so starting fast matters. The engine is built once
 /// per input and kept, since building one adds 100–200 ms to a start. It runs only while recording,
-/// which keeps the microphone and its indicator off between dictations, unless it's kept on: an
-/// interface such as the Vocaster takes over half a second to start from idle.
+/// which keeps the microphone and its indicator off between dictations.
 ///
-/// The engine lives on a serial queue of its own, as capture sessions do, so a slow start never
-/// holds up the key events that tell a tap from a hold. Calls queue up in the order they're made,
-/// so a stop or cancel always follows the start it belongs to. Its mutable state is only touched
-/// on that queue, which is why the class can be unchecked Sendable.
+/// The engine lives on a serial queue of its own, as capture sessions do: starting an interface
+/// such as the Vocaster takes over half a second, which on the main thread would hold up the key
+/// events that tell a tap from a hold. Calls queue up in the order they're made, so a stop or
+/// cancel always follows the start it belongs to. Its mutable state is only touched on that
+/// queue, which is why the class can be unchecked Sendable.
 final class AudioRecorder: @unchecked Sendable {
     enum Failure: Error { case noInput }
 
@@ -22,10 +22,6 @@ final class AudioRecorder: @unchecked Sendable {
     /// Written on the audio thread, read on the main thread.
     private let capture = Capture()
     private var microphone: Microphone?
-    /// The Core Audio UID of the chosen input, or nil for the system default.
-    private var inputUID: String?
-    private var keepsOn = false
-    private var isRecording = false
     private let logger = Logger(subsystem: "local.markus.Speakty", category: "Audio")
     #if DEBUG
     private var testAudio: DispatchSourceTimer?
@@ -44,37 +40,13 @@ final class AudioRecorder: @unchecked Sendable {
         #endif
     }
 
-    /// Records from the input with Core Audio UID `inputUID`, or the system default input when it's
-    /// nil or no longer connected. With `keepsOn`, the microphone runs between recordings too.
-    func configure(inputUID: String?, keepsOn: Bool) {
-        queue.async { [self] in
-            guard inputUID != self.inputUID || keepsOn != self.keepsOn else { return }
-            self.inputUID = inputUID
-            self.keepsOn = keepsOn
-            updateOrLog()
-        }
-    }
-
-    /// Follows a change of devices, such as a microphone connected after it was chosen.
-    func refresh() {
-        queue.async { [self] in updateOrLog() }
-    }
-
-    /// Returns at once; `started` runs on the main actor once the microphone is live, or with the
-    /// error that kept it from starting.
-    func start(started: @escaping @MainActor @Sendable (Result<Void, any Error>) -> Void) {
+    /// Starts recording from the input with Core Audio UID `inputUID`, or the system default input
+    /// when it's nil or no longer connected. Returns at once; `started` runs on the main actor once
+    /// the microphone is live, or with the error that kept it from starting.
+    func start(inputUID: String?, started: @escaping @MainActor @Sendable (Result<Void, any Error>) -> Void) {
         let requested = ContinuousClock.now
         queue.async { [self] in
-            capture.begin()
-            isRecording = true
-            let result = Result {
-                try update()
-                #if DEBUG
-                // Speakty Dev can replay a file instead of the microphone, so checks run without speaking:
-                // `defaults write local.markus.Speakty.dev testAudioFile /path/to/speech.wav`.
-                if let path = UserDefaults.standard.string(forKey: Self.testAudioKey) { try replay(URL(fileURLWithPath: path)) }
-                #endif
-            }
+            let result = Result { try startMicrophone(inputUID: inputUID) }
             if case .success = result {
                 logger.info("Recording after \(requested.duration(to: .now).formatted(.units(allowed: [.milliseconds])), privacy: .public)")
             }
@@ -86,46 +58,41 @@ final class AudioRecorder: @unchecked Sendable {
     /// `cancel`, so the stop is queued right away, ahead of any start that follows it.
     @MainActor func stop() async -> [Float] {
         await withCheckedContinuation { continuation in
-            queue.async { [self] in continuation.resume(returning: finish()) }
+            queue.async { [self] in
+                stopMicrophone()
+                continuation.resume(returning: capture.take())
+            }
         }
     }
 
     func cancel() {
-        queue.async { [self] in _ = finish() }
+        queue.async { [self] in
+            stopMicrophone()
+            _ = capture.take()
+        }
     }
 
-    private func finish() -> [Float] {
-        isRecording = false
+    private func startMicrophone(inputUID: String?) throws {
+        capture.reset()
+        #if DEBUG
+        // Speakty Dev can replay a file instead of the microphone, so checks run without speaking:
+        // `defaults write local.markus.Speakty.dev testAudioFile /path/to/speech.wav`.
+        if let path = UserDefaults.standard.string(forKey: Self.testAudioKey) { return try replay(URL(fileURLWithPath: path)) }
+        #endif
+        guard let device = inputUID.flatMap(AudioDevices.deviceID(forUID:)) ?? AudioDevices.defaultInput else { throw Failure.noInput }
+        if let microphone, microphone.device != device || !microphone.isCurrent { self.microphone = nil }
+        let microphone = try self.microphone ?? Microphone(device: device, capture: capture)
+        self.microphone = microphone
+        try microphone.start()
+    }
+
+    private func stopMicrophone() {
         #if DEBUG
         testAudio?.cancel()
         testAudio = nil
         testChunks = []
         #endif
-        let samples = capture.end()
-        updateOrLog()
-        return samples
-    }
-
-    /// Runs the microphone while it records or is kept on, and stops it otherwise. Builds a new
-    /// engine when the input or its format changed.
-    private func update() throws {
-        guard usesMicrophone, isRecording || keepsOn else {
-            microphone?.stop()
-            return
-        }
-        guard let device = inputUID.flatMap(AudioDevices.deviceID(forUID:)) ?? AudioDevices.defaultInput else { throw Failure.noInput }
-        if let microphone, microphone.device != device || !microphone.isCurrent { self.microphone = nil }
-        let microphone = try self.microphone ?? Microphone(device: device, capture: capture) { [weak self] in
-            // The engine stops itself when a device changes, as when headphones connect.
-            self?.refresh()
-        }
-        self.microphone = microphone
-        try microphone.start()
-    }
-
-    /// For updates without a start to report a failure to.
-    private func updateOrLog() {
-        do { try update() } catch { logger.error("Microphone didn't start: \(error.localizedDescription, privacy: .public)") }
+        microphone?.stop()
     }
 
     #if DEBUG
@@ -158,11 +125,9 @@ private final class Microphone {
     let device: AudioDeviceID
     private let engine = AVAudioEngine()
     private let deviceFormat: AVAudioFormat
-    private var observer: (any NSObjectProtocol)?
     private let logger = Logger(subsystem: "local.markus.Speakty", category: "Audio")
 
-    /// `changed` runs on any thread when the engine stops itself for a change of devices.
-    init(device: AudioDeviceID, capture: Capture, changed: @escaping @Sendable () -> Void) throws {
+    init(device: AudioDeviceID, capture: Capture) throws {
         self.device = device
         let input = engine.inputNode
         if let unit = input.audioUnit {
@@ -187,13 +152,10 @@ private final class Microphone {
             capture.append(converter.convert(buffer))
         }
         engine.prepare()
-        observer = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine,
-                                                          queue: nil) { _ in changed() }
         logger.info("Microphone ready: \(self.deviceFormat.sampleRate) Hz, \(self.deviceFormat.channelCount) channels")
     }
 
     deinit {
-        if let observer { NotificationCenter.default.removeObserver(observer) }
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
     }
@@ -210,21 +172,19 @@ private final class Microphone {
 }
 
 /// The samples and level of the recording in progress, shared between the audio and main threads.
-/// Chunks that arrive while it isn't recording, from a microphone kept on, are dropped.
 private final class Capture: Sendable {
     private struct State {
         var samples: [Float] = []
         var level: Float = 0
-        var isRecording = false
     }
 
     private let state = Mutex(State())
 
     var level: Float { state.withLock(\.level) }
 
-    func begin() { state.withLock { $0 = State(isRecording: true) } }
+    func reset() { state.withLock { $0 = State() } }
 
-    func end() -> [Float] {
+    func take() -> [Float] {
         state.withLock { state in
             defer { state = State() }
             return state.samples
@@ -238,7 +198,6 @@ private final class Capture: Sendable {
         // -50 dB is silence and -10 dB a loud voice.
         let loudness = min(1, max(0, (20 * log10(max(rms, 1e-6)) + 50) / 40))
         state.withLock { state in
-            guard state.isRecording else { return }
             state.samples += chunk
             state.level = loudness > state.level ? loudness : state.level * 0.7 + loudness * 0.3
         }

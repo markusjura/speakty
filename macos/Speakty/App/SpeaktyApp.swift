@@ -117,7 +117,6 @@ final class SpeaktyApplicationDelegate: NSObject, NSApplicationDelegate {
         #endif
         observePreferences()
         observeDictation()
-        dictation.start()
         hotkeys.start()
         overlay.start()
         transcriber.prepare()
